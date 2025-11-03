@@ -1,0 +1,117 @@
+📊 MÉTRICAS DE ALCANCE Y VISIBILIDAD
+Impresiones (Impressions)
+Número total de veces que se mostró tu anuncio, independientemente de si se hizo clic o no.
+
+Alcance (Reach)
+Número de personas únicas que vieron tu anuncio al menos una vez.
+
+Frecuencia (Frequency)
+Promedio de veces que cada persona vio tu anuncio. Cálculo: Impresiones ÷ Alcance
+
+CPM (Cost Per Mille)
+Costo por cada 1,000 impresiones. Cálculo: (Inversión ÷ Impresiones) × 1,000
+
+🖱️ MÉTRICAS DE INTERACCIÓN
+CTR (Click-Through Rate)
+Porcentaje de personas que hicieron clic después de ver el anuncio. Cálculo: (Clics ÷ Impresiones) × 100
+
+CPC (Cost Per Click)
+Costo promedio por cada clic. Cálculo: Inversión Total ÷ Clics
+
+Clics de Enlaces (Link Clicks)
+Clics que llevan a tu sitio web (no incluye likes, shares, etc.).
+
+CTR de Enlaces (Link CTR)
+Porcentaje de clics que fueron específicamente a enlaces. Cálculo: (Clics de Enlaces ÷ Impresiones) × 100
+
+📈 MÉTRICAS DE CONVERSIÓN
+Conversiones (Conversions)
+Acciones valiosas completadas (compras, registros, descargas, etc.).
+
+CVR (Conversion Rate)
+Porcentaje de clics que se convirtieron en conversiones. Cálculo: (Conversiones ÷ Clics) × 100
+
+CPA (Cost Per Acquisition)
+Costo promedio por cada conversión. Cálculo: Inversión Total ÷ Conversiones
+
+CPL (Cost Per Lead)
+Costo promedio por cada lead generado.
+
+💰 MÉTRICAS DE RENTABILIDAD
+ROAS (Return on Ad Spend)
+Ingresos generados por cada euro invertido en publicidad. Cálculo: Ingresos de Conversiones ÷ Inversión en Publicidad Ejemplo: ROAS 4:1 = €4 de ingresos por cada €1 invertido
+
+ROI (Return on Investment)
+Beneficio neto como porcentaje de la inversión. Cálculo: ((Ingresos - Inversión) ÷ Inversión) × 100
+
+Valor de Conversión
+Valor monetario total generado por las conversiones.
+
+🛒 MÉTRICAS DE ECOMMERCE
+AOV (Average Order Value)
+Valor promedio de cada pedido. Cálculo: Ingresos Totales ÷ Número de Pedidos
+
+LTV (Lifetime Value)
+Valor total que un cliente aporta durante toda su relación con la marca.
+
+CAC (Customer Acquisition Cost)
+Costo total para adquirir un nuevo cliente.
+
+🎬 MÉTRICAS DE VIDEO
+Video Views
+Número de reproducciones del video (mínimo 3 segundos).
+
+Video Completion Rate
+Porcentaje de personas que vieron el video completo.
+
+25%, 50%, 75%, 95% Video Watched
+Porcentajes de personas que vieron esa fracción del video.
+
+CPV (Cost Per View)
+Costo promedio por cada visualización de video.
+
+📱 MÉTRICAS DE ENGAGEMENT
+Engagement Rate
+Porcentaje de interacciones respecto al alcance. Cálculo: (Likes + Comentarios + Shares) ÷ Alcance × 100
+
+Social Actions
+Likes, comentarios, shares, guardados, etc.
+
+Save Rate
+Porcentaje de personas que guardaron tu contenido.
+
+🎯 MÉTRICAS DE CALIDAD
+Quality Score (Google Ads)
+Puntuación de 1-10 que evalúa la relevancia de tu anuncio.
+
+Relevance Score (Facebook)
+Puntuación que mide qué tan relevante es tu anuncio para tu audiencia.
+
+Bounce Rate
+Porcentaje de visitantes que abandonan tu sitio sin interactuar.
+
+📊 MÉTRICAS AVANZADAS
+Attribution Window
+Período de tiempo después del clic/vista en que se atribuyen conversiones.
+
+Assisted Conversions
+Conversiones donde el anuncio contribuyó pero no fue el último clic.
+
+Cross-Device Conversions
+Conversiones que ocurren en un dispositivo diferente al del clic inicial.
+
+Incremental Conversions
+Conversiones adicionales generadas específicamente por la campaña publicitaria.
+
+🎨 MÉTRICAS ESPECÍFICAS POR PLATAFORMA
+Facebook/Meta:
+CPE (Cost Per Engagement): Costo por interacción social
+Page Likes: Nuevos seguidores de página
+Post Engagement: Interacciones con publicaciones
+Google Ads:
+Search Impression Share: Porcentaje de impresiones obtenidas vs. disponibles
+Average Position: Posición promedio del anuncio
+Click Share: Porcentaje de clics obtenidos vs. disponibles
+LinkedIn:
+Social Actions: Follows, likes profesionales
+Lead Form Completion Rate: Tasa de completación de formularios

@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "meta_ads_agent": "./agent.py:app"
+  },
+  "env": ".env"
+}

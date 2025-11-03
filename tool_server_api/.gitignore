@@ -1,0 +1,7 @@
+# Archivos de credenciales de Google
+tool_server_api/google_slides_credentials.json
+tool_server_api/client_secret.json
+tool_server_api/google-ads.yaml
+
+# También ignora el .env, si no lo has hecho
+.env
