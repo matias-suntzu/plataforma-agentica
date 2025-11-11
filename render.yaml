@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: agente-meta-mcp
+    runtime: python
+    plan: free  # o 'starter' si quieres más recursos
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: uvicorn langgraph_agent.api.main:api --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///./checkpoints/agent_checkpoints.db
+    disk:
+      name: agent-data
+      mountPath: /opt/render/project/src/checkpoints
+      sizeGB: 1
+```
+
+### 3️⃣ Crear `runtime.txt` (especifica versión de Python)
+```
+python-3.13.0

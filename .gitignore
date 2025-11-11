@@ -1,2 +1,29 @@
-# Excluir el archivo de variables de entorno
+﻿# Virtual environments
+venv/
+venv_*/
+*/venv_*/
+
+# Backups
+*_backup_*/
+
+# Cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Databases locales
+*.db
+*.sqlite
+checkpoints/*.db
+
+# Vectorstores locales
+knowledge_base/vectorstore/
+cache/
+
+# Environment
 .env
+.env.local
+
+# IDE
+.vscode/
+.idea/

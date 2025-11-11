@@ -1,0 +1,19 @@
+# Core
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-dotenv==1.0.0
+
+# LangChain & LangGraph
+langchain==0.1.0
+langchain-google-genai==1.0.0
+langgraph==0.0.40
+langchain-chroma==0.1.0
+langchain-community==0.0.19
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Utilities
+requests==2.31.0
+pydantic==2.5.0
