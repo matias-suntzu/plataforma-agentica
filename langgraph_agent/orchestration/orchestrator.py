@@ -68,7 +68,7 @@ class OrchestratorV3:
         self.log_file = "orchestrator_v3_metrics.jsonl"
         
         # Router V2
-        self.router = QueryRouterV2(log_to_file=enable_logging)
+        self.router = QueryRouterV3(log_to_file=enable_logging)
         
         # Workflows base
         self.fast_path = FastPathWorkflow(langserve_url, api_key)
