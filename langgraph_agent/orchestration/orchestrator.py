@@ -29,7 +29,7 @@ from ..workflows.autonomous import AutonomousOptimizationWorkflow
 
 # Importar el agente compilado
 from ..core.agent import app as agent_app
-from langgraph.graph.graph import RunnableConfig  # ← AÑADE ESTO
+from langchain_core.runnables import RunnableConfig
 
 # Importar sistemas del Día 3
 from ..safety.guardrails import GuardrailsManager, ValidationResult
