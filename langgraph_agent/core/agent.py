@@ -351,18 +351,28 @@ print("="*70)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
-    # Producción: PostgreSQL (Render)
+    # IMPORTANTE: PostgresSaver.from_conn_string() retorna un context manager
+    # Debemos llamarlo SIN 'with' para uso global
     try:
         from langgraph.checkpoint.postgres import PostgresSaver
+        
+        # Inicializar el checkpointer
         checkpointer = PostgresSaver.from_conn_string(DATABASE_URL)
+        
+        # Setup de las tablas (solo primera vez)
+        try:
+            checkpointer.setup()
+        except Exception:
+            pass  # Ya existe
+        
         app = workflow.compile(checkpointer=checkpointer)
         print(f"✅ PostgreSQL Checkpointer inicializado")
-        print(f"📁 Database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'PostgreSQL'}")
+        
     except Exception as e:
         print(f"⚠️  Error con PostgreSQL: {e}")
         print("   Usando SQLite como fallback")
         conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
-        checkpointer = SqliteSaver.from_conn_string(str(CHECKPOINT_DB))
+        checkpointer = SqliteSaver(conn)
         app = workflow.compile(checkpointer=checkpointer)
         print(f"✅ SQLite Checkpointer inicializado (fallback)")
 else:
@@ -370,7 +380,7 @@ else:
     conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
     checkpointer = SqliteSaver(conn)
     app = workflow.compile(checkpointer=checkpointer)
-    print(f"✅ SQLite Checkpointer inicializado")
+    print(f"✅ SQLite Checkpointer inicializado (local)")
     print(f"📁 Base de datos: {CHECKPOINT_DB}")
 
 print(f"🎯 Versión: 3.2 FASE 2")
