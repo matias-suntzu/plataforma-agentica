@@ -314,203 +314,26 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("execute_tools", "call_llm")
 
-# ========== 🆕 COMPILAR CON SQLITE CHECKPOINTER ==========
-
-# Crear carpeta para checkpoints
-CHECKPOINTS_DIR = Path("checkpoints")
-CHECKPOINTS_DIR.mkdir(exist_ok=True)
-CHECKPOINT_DB = CHECKPOINTS_DIR / "agent_checkpoints.db"
+# ========== COMPILACIÓN CON LANGSMITH ==========
 
 print("\n" + "="*70)
-print("🆕 FASE 2: Inicializando SQLite Checkpointer")
+print("🚀 Compilando agente con LangSmith")
 print("="*70)
 
-# Inicializar conexión SQLite
-# Permitir acceso multihilo
-conn = sqlite3.connect("checkpoints/agent_checkpoints.db", check_same_thread=False)
+# ✅ LangSmith maneja automáticamente:
+# - Checkpointing (persistencia)
+# - Tracing (observabilidad)
+# - Memory (estados conversacionales)
+# - Time-travel (debugging)
 
-# Serializer moderno compatible con LangGraph >= 0.2
-serde = JsonPlusSerializer(pickle_fallback=True)
+app = workflow.compile()
 
-# Crear checkpointer (usa JsonPlusSerializer automáticamente)
-#checkpointer = SqliteSaver(conn)
-
-from langgraph.checkpoint.postgres import PostgresSaver
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Crear carpeta para checkpoints
-CHECKPOINTS_DIR = Path("checkpoints")
-CHECKPOINTS_DIR.mkdir(exist_ok=True)
-CHECKPOINT_DB = CHECKPOINTS_DIR / "agent_checkpoints.db"
-
-print("\n" + "="*70)
-print("🆕 FASE 2: Inicializando Checkpointer")
-print("="*70)
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-if DATABASE_URL:
-    print(f"🔍 DATABASE_URL detectada: PostgreSQL en Render")
-    
-    try:
-        # ✅ SOLUCIÓN 2: Conexión directa con psycopg (más robusta)
-        import psycopg
-        from psycopg.rows import dict_row
-        
-        print("📡 Conectando a PostgreSQL...")
-        
-        # Crear pool de conexiones persistente
-        connection = psycopg.connect(
-            DATABASE_URL,
-            autocommit=True,
-            row_factory=dict_row
-        )
-        
-        # Crear checkpointer con la conexión
-        checkpointer = PostgresSaver(connection)
-        
-        # Setup de las tablas (solo primera vez)
-        print("📋 Configurando tablas de PostgreSQL...")
-        checkpointer.setup()
-        
-        # Compilar con PostgreSQL
-        app = workflow.compile(checkpointer=checkpointer)
-        
-        print(f"✅ PostgreSQL Checkpointer inicializado")
-        print(f"🌐 Base de datos: PostgreSQL (Render)")
-        print(f"🔗 Conexión persistente activa")
-        
-    except ImportError as e:
-        print(f"⚠️  psycopg no instalado: {e}")
-        print("💡 Instala con: pip install psycopg[binary]")
-        print("🔄 Usando SQLite como fallback...")
-        
-        conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
-        checkpointer = SqliteSaver(conn)
-        app = workflow.compile(checkpointer=checkpointer)
-        
-        print(f"✅ SQLite Checkpointer inicializado (fallback)")
-        
-    except Exception as e:
-        print(f"⚠️  Error inicializando PostgreSQL: {e}")
-        print(f"📝 Error tipo: {type(e).__name__}")
-        print("🔄 Usando SQLite como fallback...")
-        
-        conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
-        checkpointer = SqliteSaver(conn)
-        app = workflow.compile(checkpointer=checkpointer)
-        
-        print(f"✅ SQLite Checkpointer inicializado (fallback)")
-        print(f"📁 Base de datos: {CHECKPOINT_DB}")
-else:
-    # Desarrollo local: SQLite
-    print("💻 Modo desarrollo local - usando SQLite")
-    
-    conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
-    app = workflow.compile(checkpointer=checkpointer)
-    
-    print(f"✅ SQLite Checkpointer inicializado (local)")
-    print(f"📁 Base de datos: {CHECKPOINT_DB}")
-
-print(f"🎯 Versión: 3.2 FASE 2")
-print(f"🛠️ 9 herramientas: 8 consultas + 1 acción (MOCK)")
-print(f"💾 Persistencia: ACTIVADA")
+print(f"✅ Agente compilado exitosamente")
+print(f"🌐 LangSmith Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
+print(f"📊 Tracing: {os.getenv('LANGCHAIN_TRACING_V2', 'false')}")
+print(f"🎯 Versión: 3.2 FASE 2 + LangSmith")
+print(f"🛠️ 9 herramientas: 8 consultas + 1 acción")
 print("="*70 + "\n")
-
-
-# ========== 🆕 FUNCIONES DE UTILIDAD PARA CHECKPOINTS ==========
-
-def get_checkpoint_history(thread_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Obtiene el historial de checkpoints para un thread específico.
-    
-    Args:
-        thread_id: ID del thread
-        limit: Número máximo de checkpoints a retornar
-        
-    Returns:
-        Lista de checkpoints con metadata
-    """
-    try:
-        cursor = conn.cursor()
-        
-        query = """
-            SELECT thread_id, checkpoint_id, parent_checkpoint_id, checkpoint_ns, metadata
-            FROM checkpoints
-            WHERE thread_id = ?
-            ORDER BY checkpoint_id DESC
-            LIMIT ?
-        """
-        
-        cursor.execute(query, (thread_id, limit))
-        rows = cursor.fetchall()
-        
-        checkpoints = []
-        for row in rows:
-            checkpoints.append({
-                "thread_id": row[0],
-                "checkpoint_id": row[1],
-                "parent_checkpoint_id": row[2],
-                "checkpoint_ns": row[3],
-                "metadata": json.loads(row[4]) if row[4] else {}
-            })
-        
-        return checkpoints
-    
-    except Exception as e:
-        print(f"❌ Error obteniendo historial: {e}")
-        return []
-
-
-def get_database_stats() -> Dict[str, Any]:
-    """
-    Obtiene estadísticas de la base de datos de checkpoints.
-    
-    Returns:
-        Dict con estadísticas: total_checkpoints, unique_threads, db_size_mb
-    """
-    try:
-        cursor = conn.cursor()
-        
-        # Total de checkpoints
-        cursor.execute("SELECT COUNT(*) FROM checkpoints")
-        total_checkpoints = cursor.fetchone()[0]
-        
-        # Threads únicos
-        cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM checkpoints")
-        unique_threads = cursor.fetchone()[0]
-        
-        # Tamaño de la BD
-        db_size_bytes = CHECKPOINT_DB.stat().st_size
-        db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
-        
-        return {
-            "total_checkpoints": total_checkpoints,
-            "unique_threads": unique_threads,
-            "db_size_mb": db_size_mb,
-            "db_path": str(CHECKPOINT_DB)
-        }
-    
-    except Exception as e:
-        print(f"❌ Error obteniendo estadísticas: {e}")
-        return {}
-
-
-def print_checkpoint_stats():
-    """Imprime estadísticas de checkpoints en formato visual."""
-    stats = get_database_stats()
-    
-    if stats:
-        print("\n" + "="*70)
-        print("📊 ESTADÍSTICAS DE CHECKPOINTS (SQLite)")
-        print("="*70)
-        print(f"💾 Total de checkpoints: {stats['total_checkpoints']}")
-        print(f"🧵 Threads únicos: {stats['unique_threads']}")
-        print(f"📦 Tamaño de BD: {stats['db_size_mb']} MB")
-        print(f"📁 Ubicación: {stats['db_path']}")
-        print("="*70 + "\n")
 
 
 # ========== SCRIPT DE PRUEBA ==========
@@ -553,3 +376,5 @@ if __name__ == "__main__":
     print_checkpoint_stats()
     
     print("✅ Tests completados")
+
+    
