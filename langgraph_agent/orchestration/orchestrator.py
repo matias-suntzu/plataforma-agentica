@@ -347,8 +347,7 @@ class OrchestratorV3:
     
     def _analyze_comparison_with_llm(self, comparison: Dict, thread_id: str) -> str:
         """Analiza la comparación con el LLM."""
-        from langchain_core.messages import HumanMessage
-        from langchain_core.runnables import RunnableConfig
+
         
         # Crear prompt para el LLM
         prompt = f"""Analiza esta comparación de períodos de Meta Ads y proporciona insights accionables.
