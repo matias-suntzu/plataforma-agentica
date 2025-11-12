@@ -338,14 +338,45 @@ serde = JsonPlusSerializer(pickle_fallback=True)
 from langgraph.checkpoint.postgres import PostgresSaver
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-if DATABASE_URL:
-    checkpointer = PostgresSaver.from_conn_string(DATABASE_URL)
-    app = workflow.compile(checkpointer=checkpointer)
-else:
-    app = workflow.compile()
 
-# Compilar el grafo con el checkpointer
-app = workflow.compile(checkpointer=checkpointer)
+# Crear carpeta para checkpoints
+CHECKPOINTS_DIR = Path("checkpoints")
+CHECKPOINTS_DIR.mkdir(exist_ok=True)
+CHECKPOINT_DB = CHECKPOINTS_DIR / "agent_checkpoints.db"
+
+print("\n" + "="*70)
+print("🆕 FASE 2: Inicializando Checkpointer")
+print("="*70)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    # Producción: PostgreSQL (Render)
+    try:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        checkpointer = PostgresSaver.from_conn_string(DATABASE_URL)
+        app = workflow.compile(checkpointer=checkpointer)
+        print(f"✅ PostgreSQL Checkpointer inicializado")
+        print(f"📁 Database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'PostgreSQL'}")
+    except Exception as e:
+        print(f"⚠️  Error con PostgreSQL: {e}")
+        print("   Usando SQLite como fallback")
+        conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
+        checkpointer = SqliteSaver.from_conn_string(str(CHECKPOINT_DB))
+        app = workflow.compile(checkpointer=checkpointer)
+        print(f"✅ SQLite Checkpointer inicializado (fallback)")
+else:
+    # Desarrollo local: SQLite
+    conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
+    app = workflow.compile(checkpointer=checkpointer)
+    print(f"✅ SQLite Checkpointer inicializado")
+    print(f"📁 Base de datos: {CHECKPOINT_DB}")
+
+print(f"🎯 Versión: 3.2 FASE 2")
+print(f"🛠️ 9 herramientas: 8 consultas + 1 acción (MOCK)")
+print(f"💾 Persistencia: ACTIVADA")
+print("="*70 + "\n")
 
 print(f"✅ SQLite Checkpointer inicializado")
 print(f"📁 Base de datos: {CHECKPOINT_DB}")
