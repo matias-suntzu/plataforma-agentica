@@ -1,34 +1,23 @@
 """
 Agente Principal de Meta Ads con LangGraph
-Versión: 3.2 (Con SQLite Checkpointer - FASE 2)
-
-CAMBIOS vs 3.1:
-- ✅ SQLite Checkpointer para persistencia local
-- ✅ Time-travel debugging
-- ✅ Gestión de checkpoints
-- ✅ Funciones de utilidad para inspección
+Versión: 3.3 (Con LangSmith)
 """
 
 import os
 import json
 import uuid
-import sqlite3
-from pathlib import Path
-from dotenv import load_dotenv
-from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from datetime import datetime
 import calendar
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage, SystemMessage
-from langchain_core.runnables import RunnableConfig  # ← AGREGADO
+from langchain_core.runnables import RunnableConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
 import requests
 from pydantic import BaseModel, Field
+from typing import TypedDict, Annotated, List, Dict, Any, Optional
 
-# 🆕 FASE 2: Importar SQLite Checkpointer
-from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from dotenv import load_dotenv
 
 from ..memory.rag_manager import RAGManager
 from ..memory.memory_manager import MemoryManager
