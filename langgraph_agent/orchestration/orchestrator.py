@@ -12,6 +12,10 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Importar mensajes de LangChain
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage  # ← AÑADE ESTO
+
+
 # Importar Router V3 y Workflows
 from .router import QueryRouterV3
 from ..workflows.base import (
