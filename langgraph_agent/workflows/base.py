@@ -4,6 +4,7 @@ Workflows base: WorkflowResult, FastPath, Agentic
 import requests
 from typing import Dict, Any
 from datetime import datetime
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 class WorkflowResult:
     """Resultado estandarizado"""
