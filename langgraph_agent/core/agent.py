@@ -351,48 +351,72 @@ print("="*70)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
-    # IMPORTANTE: PostgresSaver.from_conn_string() retorna un context manager
-    # Debemos llamarlo SIN 'with' para uso global
+    print(f"🔍 DATABASE_URL detectada: PostgreSQL en Render")
+    
     try:
-        from langgraph.checkpoint.postgres import PostgresSaver
+        # ✅ SOLUCIÓN 2: Conexión directa con psycopg (más robusta)
+        import psycopg
+        from psycopg.rows import dict_row
         
-        # Inicializar el checkpointer
-        checkpointer = PostgresSaver.from_conn_string(DATABASE_URL)
+        print("📡 Conectando a PostgreSQL...")
+        
+        # Crear pool de conexiones persistente
+        connection = psycopg.connect(
+            DATABASE_URL,
+            autocommit=True,
+            row_factory=dict_row
+        )
+        
+        # Crear checkpointer con la conexión
+        checkpointer = PostgresSaver(connection)
         
         # Setup de las tablas (solo primera vez)
-        try:
-            checkpointer.setup()
-        except Exception:
-            pass  # Ya existe
+        print("📋 Configurando tablas de PostgreSQL...")
+        checkpointer.setup()
         
+        # Compilar con PostgreSQL
         app = workflow.compile(checkpointer=checkpointer)
-        print(f"✅ PostgreSQL Checkpointer inicializado")
         
-    except Exception as e:
-        print(f"⚠️  Error con PostgreSQL: {e}")
-        print("   Usando SQLite como fallback")
+        print(f"✅ PostgreSQL Checkpointer inicializado")
+        print(f"🌐 Base de datos: PostgreSQL (Render)")
+        print(f"🔗 Conexión persistente activa")
+        
+    except ImportError as e:
+        print(f"⚠️  psycopg no instalado: {e}")
+        print("💡 Instala con: pip install psycopg[binary]")
+        print("🔄 Usando SQLite como fallback...")
+        
         conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
         checkpointer = SqliteSaver(conn)
         app = workflow.compile(checkpointer=checkpointer)
+        
         print(f"✅ SQLite Checkpointer inicializado (fallback)")
+        
+    except Exception as e:
+        print(f"⚠️  Error inicializando PostgreSQL: {e}")
+        print(f"📝 Error tipo: {type(e).__name__}")
+        print("🔄 Usando SQLite como fallback...")
+        
+        conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
+        app = workflow.compile(checkpointer=checkpointer)
+        
+        print(f"✅ SQLite Checkpointer inicializado (fallback)")
+        print(f"📁 Base de datos: {CHECKPOINT_DB}")
 else:
     # Desarrollo local: SQLite
+    print("💻 Modo desarrollo local - usando SQLite")
+    
     conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
     checkpointer = SqliteSaver(conn)
     app = workflow.compile(checkpointer=checkpointer)
+    
     print(f"✅ SQLite Checkpointer inicializado (local)")
     print(f"📁 Base de datos: {CHECKPOINT_DB}")
 
 print(f"🎯 Versión: 3.2 FASE 2")
 print(f"🛠️ 9 herramientas: 8 consultas + 1 acción (MOCK)")
 print(f"💾 Persistencia: ACTIVADA")
-print("="*70 + "\n")
-
-print(f"✅ SQLite Checkpointer inicializado")
-print(f"📁 Base de datos: {CHECKPOINT_DB}")
-print(f"🎯 Versión: 3.2 FASE 2")
-print(f"🛠️ 9 herramientas: 8 consultas + 1 acción (MOCK)")
-print(f"💾 Persistencia: ACTIVADA (SQLite)")
 print("="*70 + "\n")
 
 
