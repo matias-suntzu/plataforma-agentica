@@ -1,4 +1,6 @@
-"""Variables de entorno y configuración centralizada"""
+"""
+Configuración centralizada de la aplicación
+"""
 
 import os
 from dotenv import load_dotenv
@@ -7,70 +9,59 @@ load_dotenv()
 
 
 class Settings:
-    """Configuración centralizada del servidor"""
+    """Configuración de la aplicación."""
     
-    # ========== META ADS ==========
-    AD_ACCOUNT_ID = os.getenv('META_AD_ACCOUNT_ID', 'act_952835605437684')
-    ACCESS_TOKEN = os.getenv('META_ACCESS_TOKEN')
-    APP_ID = os.getenv('META_APP_ID')
-    APP_SECRET = os.getenv('META_APP_SECRET')
+    # Meta Ads API
+    META_APP_ID = os.getenv("META_APP_ID")
+    META_APP_SECRET = os.getenv("META_APP_SECRET")
+    META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
+    AD_ACCOUNT_ID = os.getenv("AD_ACCOUNT_ID", "act_952835605437684")
     
-    # ========== SEGURIDAD ==========
-    TOOL_API_KEY = os.getenv("TOOL_API_KEY", "53b6C9dF-a8Jk0PqR-ZzYxWvUt-42e7H0Lp-Tq8iS1fG").strip()
+    # Google/Gemini
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     
-    # ========== INTEGRACIONES ==========
-    N8N_WEBHOOK_URL = os.getenv(
-        'N8N_SLIDES_WEBHOOK_URL',
-        'http://localhost:5678/webhook/generar-reporte-meta-ads'
-    )
-    SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
+    # LangSmith
+    LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false")
+    LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
+    LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "meta-ads-agent")
     
-    # ========== MAPEOS DE DATOS ==========
-    DESTINO_MAPPING = {
-        'baqueira': 'baqueira',
-        'ibiza': 'ibiza',
-        'menorca': 'menorca',
-        'costa del sol': 'costasol',
-        'costasol': 'costasol',
-        'costa de la luz': 'costaluz',
-        'costaluz': 'costaluz',
-        'costa blanca': 'costablanca',
-        'costablanca': 'costablanca',
-        'cantabria': 'cantabria',
-        'formentera': 'formentera'
-    }
+    # Integraciones opcionales
+    SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+    N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
     
-    BID_STRATEGY_MAP = {
-        'LOWEST_COST_WITHOUT_CAP': 'Volumen más alto',
-        'COST_CAP': 'Objetivo de costo por resultado',
-        'LOWEST_COST_WITH_BID_CAP': 'Límite de costo',
-        'TARGET_COST': 'Objetivo de costo',
-    }
-    
-    # ========== VALIDACIÓN ==========
+    # Validar configuración crítica
     @classmethod
     def validate(cls):
-        """Valida que las configuraciones críticas estén presentes"""
+        """Valida que las variables críticas estén configuradas."""
         errors = []
         
-        if not cls.ACCESS_TOKEN:
-            errors.append("❌ META_ACCESS_TOKEN no configurado")
+        if not cls.META_ACCESS_TOKEN:
+            errors.append("META_ACCESS_TOKEN no configurado")
         
-        if not cls.APP_ID:
-            errors.append("❌ META_APP_ID no configurado")
+        if not cls.AD_ACCOUNT_ID:
+            errors.append("AD_ACCOUNT_ID no configurado")
         
-        if not cls.APP_SECRET:
-            errors.append("❌ META_APP_SECRET no configurado")
+        if not cls.GOOGLE_API_KEY and not cls.GEMINI_API_KEY:
+            errors.append("GOOGLE_API_KEY o GEMINI_API_KEY no configurado")
         
         if errors:
-            print("\n⚠️ ERRORES DE CONFIGURACIÓN:")
-            for error in errors:
-                print(f"   {error}")
-            print("\n💡 Verifica tu archivo .env\n")
-            return False
+            error_msg = "\n".join([f"  - {e}" for e in errors])
+            raise ValueError(f"❌ Configuración inválida:\n{error_msg}")
         
         return True
 
 
-# Instancia global
+# Instancia singleton
 settings = Settings()
+
+# Validar al importar (solo en producción)
+if os.getenv("SKIP_VALIDATION") != "true":
+    try:
+        settings.validate()
+        print("✅ Configuración validada correctamente")
+    except ValueError as e:
+        print(str(e))
+        # No lanzar error en desarrollo, solo advertir
+        if os.getenv("ENV") == "production":
+            raise
