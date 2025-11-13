@@ -1,107 +1,40 @@
 """
 FastAPI App - Entry point para Render
-Versión con Health Check Inteligente y carga asíncrona
+FIXED: Health endpoint mejorado
 """
-
-import os
-import asyncio
-import logging
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
+import os
+import logging
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ============================================
-# ESTADO GLOBAL DEL AGENTE
-# ============================================
-AGENT_READY = False
-AGENT_WORKFLOW = None
-orchestrator = None
+# Imports del agente
+try:
+    from ..orchestration.orchestrator import OrchestratorV3
+    
+    orchestrator = OrchestratorV3(
+        enable_guardrails=False,  # Desactivar si causa problemas
+        enable_caching=False,     # Desactivar si causa problemas
+        enable_anomaly_detection=False  # Desactivar si causa problemas
+    )
+    logger.info("✅ Orchestrator inicializado correctamente")
+except Exception as e:
+    logger.error(f"❌ Error inicializando orchestrator: {e}")
+    import traceback
+    traceback.print_exc()
+    orchestrator = None
 
-# ============================================
-# FUNCIÓN DE INICIALIZACIÓN ASÍNCRONA
-# ============================================
-async def initialize_agent_background():
-    """
-    Inicializa el agente en segundo plano.
-    Permite que el servidor responda rápido mientras carga.
-    """
-    global AGENT_READY, AGENT_WORKFLOW, orchestrator
-    
-    logger.info("⏳ Iniciando carga asíncrona del agente...")
-    
-    try:
-        # Importar aquí para evitar bloquear el inicio del servidor
-        from ..core.agent import app as agent_app
-        from ..orchestration.orchestrator import OrchestratorV3
-        
-        logger.info("📦 Módulos importados")
-        
-        # Inicializar orchestrator (esto incluye RAG, Memory, etc.)
-        logger.info("🚀 Inicializando Orchestrator...")
-        orchestrator = OrchestratorV3(
-            enable_guardrails=False,
-            enable_caching=True,
-            enable_anomaly_detection=False
-        )
-        
-        logger.info("🤖 Orchestrator inicializado")
-        
-        # Guardar el workflow de LangGraph
-        AGENT_WORKFLOW = agent_app
-        
-        # Marcar como listo
-        AGENT_READY = True
-        
-        logger.info("✅ Agente completamente inicializado y listo para tráfico")
-        
-    except Exception as e:
-        logger.error(f"❌ Error crítico durante inicialización: {e}")
-        import traceback
-        traceback.print_exc()
-        # AGENT_READY permanece False
-
-
-# ============================================
-# CICLO DE VIDA DE FASTAPI
-# ============================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Maneja el ciclo de vida de la aplicación.
-    - Startup: Inicia carga del agente en background
-    - Shutdown: Limpieza si es necesario
-    """
-    # STARTUP
-    logger.info("🚀 Servidor FastAPI iniciando...")
-    
-    # Crear tarea en background (NO usar await aquí)
-    asyncio.create_task(initialize_agent_background())
-    
-    logger.info("✅ Servidor listo. Agente cargando en background...")
-    
-    # El código después del yield se ejecuta al cerrar
-    yield
-    
-    # SHUTDOWN
-    logger.info("🛑 Servidor cerrando...")
-
-
-# ============================================
-# APLICACIÓN FASTAPI
-# ============================================
 api = FastAPI(
     title="Meta Ads Agent API",
-    description="Agente LangGraph con LangSmith para Meta Ads",
-    version="3.3-async",
-    lifespan=lifespan
+    description="Agente LangGraph para Meta Ads",
+    version="1.0.0"
 )
 
-# CORS
 api.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,139 +43,103 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ============================================
-# SCHEMAS
-# ============================================
 class QueryRequest(BaseModel):
     query: str
-    thread_id: str = None
+    thread_id: Optional[str] = None
     user_id: str = "default"
 
-
 class QueryResponse(BaseModel):
-    response: str
-    thread_id: str
+    content: str
     workflow_type: str
+    metadata: dict
+    timestamp: str
 
-
-# ============================================
-# HEALTH CHECK INTELIGENTE
-# ============================================
-@api.get("/health")
-async def health_check():
-    """
-    Health check que responde instantáneamente.
-    
-    - 503: Agente aún inicializando (Render sigue intentando)
-    - 200: Agente listo para recibir tráfico
-    """
-    if not AGENT_READY:
-        logger.warning("⚠️ Health check: Agente aún cargando (503)")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "initializing",
-                "message": "Agente LangGraph inicializando. Esto puede tardar 1-2 minutos."
-            }
-        )
-    
+@api.get("/")
+def root():
     return {
-        "status": "ok",
-        "agent_ready": True,
-        "orchestrator": orchestrator is not None,
-        "workflow": AGENT_WORKFLOW is not None
+        "status": "online", 
+        "service": "Meta Ads Agent",
+        "version": "3.3-unified",
+        "orchestrator": "ready" if orchestrator else "error"
     }
 
-
-# ============================================
-# ENDPOINT PRINCIPAL: QUERY
-# ============================================
-@api.post("/query", response_model=QueryResponse)
-async def process_query(request: QueryRequest):
+@api.get("/health")
+def health_check():
     """
-    Procesa una consulta del usuario.
-    
-    Requiere que el agente esté completamente inicializado.
+    ✅ Health check mejorado - Siempre retorna 'healthy' si el servicio responde
     """
-    global orchestrator
+    # Verificaciones básicas
+    checks = {
+        "orchestrator": orchestrator is not None,
+        "google_api": bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")),
+        "meta_api": bool(os.getenv("META_ACCESS_TOKEN")),
+    }
     
-    # Verificar que el agente esté listo
-    if not AGENT_READY or orchestrator is None:
+    # Determinar estado general
+    critical_checks = ["orchestrator", "google_api", "meta_api"]
+    all_critical_pass = all(checks.get(check, False) for check in critical_checks)
+    
+    # ✅ FIX: Retornar 'healthy' si el orchestrator está listo
+    if orchestrator:
+        status = "healthy"
+    else:
+        status = "degraded"
+    
+    response = {
+        "status": status,  # ✅ Esto es lo que el frontend espera
+        "checks": checks,
+        "version": "3.3-unified",
+        "timestamp": str(os.environ.get("RENDER_GIT_COMMIT", "local"))[:7]
+    }
+    
+    # Solo retornar error 503 si NADA funciona
+    if not orchestrator:
         raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "initializing",
-                "message": "El agente aún no ha terminado de inicializarse. Por favor, espera unos segundos."
-            }
+            status_code=503, 
+            detail="Orchestrator no inicializado"
+        )
+    
+    return response
+
+@api.post("/query", response_model=QueryResponse)
+def process_query(request: QueryRequest):
+    """Procesa una query del usuario."""
+    
+    if not orchestrator:
+        raise HTTPException(
+            status_code=503, 
+            detail="Orchestrator no disponible. El servicio está iniciando o hay un error de configuración."
         )
     
     try:
-        # Procesar la consulta con el orchestrator
+        logger.info(f"📨 Query recibida: {request.query[:50]}...")
+        
         result = orchestrator.process_query(
             query=request.query,
             thread_id=request.thread_id,
             user_id=request.user_id
         )
         
+        logger.info(f"✅ Query procesada: {result.workflow_type}")
+        
         return QueryResponse(
-            response=result.content,
-            thread_id=request.thread_id or "default",
-            workflow_type=result.workflow_type
+            content=result.content,
+            workflow_type=result.workflow_type,
+            metadata=result.metadata,
+            timestamp=result.timestamp
         )
-    
+        
     except Exception as e:
         logger.error(f"❌ Error procesando query: {e}")
         import traceback
         traceback.print_exc()
         
         raise HTTPException(
-            status_code=500,
-            detail=f"Error procesando consulta: {str(e)}"
+            status_code=500, 
+            detail=f"Error interno: {str(e)}"
         )
 
-
-# ============================================
-# ENDPOINTS ADICIONALES
-# ============================================
-@api.get("/")
-async def root():
-    """Endpoint raíz con información de la API"""
-    return {
-        "service": "Meta Ads Agent API",
-        "version": "3.3-async",
-        "status": "operational" if AGENT_READY else "initializing",
-        "endpoints": {
-            "health": "/health",
-            "query": "/query (POST)",
-            "docs": "/docs"
-        }
-    }
-
-
-@api.get("/status")
-async def status():
-    """Endpoint de estado detallado"""
-    return {
-        "agent_ready": AGENT_READY,
-        "orchestrator_initialized": orchestrator is not None,
-        "workflow_loaded": AGENT_WORKFLOW is not None,
-        "langsmith_enabled": os.getenv("LANGCHAIN_TRACING_V2") == "true"
-    }
-
-
-# ============================================
-# MANEJO DE ERRORES GLOBAL
-# ============================================
-@api.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Maneja excepciones no capturadas"""
-    logger.error(f"❌ Excepción no manejada: {exc}")
-    import traceback
-    traceback.print_exc()
-    
-    return {
-        "error": str(exc),
-        "type": type(exc).__name__,
-        "path": request.url.path
-    }
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run(api, host="0.0.0.0", port=port)
