@@ -4,13 +4,13 @@ import json
 import logging
 import requests
 
-from models.schemas import (
+from ..models.schemas import (
     GenerarReporteGoogleSlidesInput,
     GenerarReporteGoogleSlidesOutput,
     EnviarAlertaSlackInput,
     EnviarAlertaSlackOutput
 )
-from config.settings import settings
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 

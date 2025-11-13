@@ -5,12 +5,12 @@ import logging
 from facebook_business.adobjects.campaign import Campaign
 from facebook_business.adobjects.adset import AdSet
 
-from models.schemas import (
+from ..models.schemas import (
     ListarCampanasInput, ListarCampanasOutput,
     BuscarIdCampanaInput, BuscarIdCampanaOutput
 )
-from utils.meta_api import get_account
-from config.settings import settings
+from ..utils.meta_api import get_account
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@
 import json
 import time
 import logging
-from models.schemas import UpdateBudgetInput, UpdateBudgetOutput
+from ..models.schemas import UpdateBudgetInput, UpdateBudgetOutput
 
 logger = logging.getLogger(__name__)
 

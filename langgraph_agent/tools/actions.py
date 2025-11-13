@@ -3,7 +3,7 @@
 import logging
 from facebook_business.adobjects.adset import AdSet
 
-from models.schemas import (
+from ..models.schemas import (
     UpdateAdsetBudgetInput,
     UpdateAdsetBudgetOutput
 )

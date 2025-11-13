@@ -7,12 +7,12 @@ from facebook_business.adobjects.campaign import Campaign
 from facebook_business.adobjects.adsinsights import AdsInsights
 from facebook_business.exceptions import FacebookRequestError
 
-from models.schemas import (
+from ..models.schemas import (
     ObtenerAnunciosPorRendimientoInput,
     ObtenerAnunciosPorRendimientoOutput
 )
-from utils.meta_api import get_account
-from utils.helpers import safe_int_from_insight
+from ..utils.meta_api import get_account
+from ..utils.helpers import safe_int_from_insight
 
 logger = logging.getLogger(__name__)
 
