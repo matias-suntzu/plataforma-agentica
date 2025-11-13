@@ -29,7 +29,6 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "meta-ads-agent"
 
 LANGSERVE_URL = os.getenv("TOOL_SERVER_BASE_URL", "http://localhost:8000")
-TOOL_API_KEY = os.getenv("TOOL_API_KEY", "53b6C9dF-a8Jk0PqR-ZzYxWvUt-42e7H0Lp-Tq8iS1fG")
 GEMINI_MODEL = "gemini-2.5-flash"
 
 if not os.getenv("GEMINI_API_KEY"):

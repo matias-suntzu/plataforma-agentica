@@ -1,10 +1,15 @@
 """
 Workflows base: WorkflowResult, FastPath, Agentic
+VERSIÓN UNIFICADA - Sin llamadas HTTP
 """
-import requests
 from typing import Dict, Any
 from datetime import datetime
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage
+
+# ✅ Importar herramientas LOCALES
+from ..tools.campaigns import listar_campanas_func
+from ..models.schemas import ListarCampanasInput
+
 
 class WorkflowResult:
     """Resultado estandarizado"""
@@ -22,60 +27,51 @@ class WorkflowResult:
             "timestamp": self.timestamp
         }
 
-# TODO: Copiar manualmente FastPathWorkflow y AgenticWorkflow desde workflows_v2.py
 
 class FastPathWorkflow:
-    """Workflow SIMPLE - Respuesta directa sin agente."""
+    """Workflow SIMPLE - Respuesta directa sin agente usando herramientas locales."""
     
-    def __init__(self, langserve_url: str, api_key: str):
-        self.langserve_url = langserve_url
-        self.api_key = api_key
+    def __init__(self):
+        """Ya NO necesita langserve_url ni api_key."""
+        pass
     
-    def _call_tool_server(self, path: str, input_data: Dict[str, Any]) -> str:
-        """
-        ✅ FIX: Añadido /invoke al final de la ruta
-        """
-        # ✅ CORRECTO: Asegurar que path termine en /invoke
-        if not path.endswith('/invoke'):
-            path = f"{path}/invoke"
-        
-        url = f"{self.langserve_url}{path}"
-        headers = {"X-Tool-Api-Key": self.api_key, "Content-Type": "application/json"}
-        
-        try:
-            print(f"   ⚙️ Llamando a la herramienta Fast Path: {url}")
-            response = requests.post(url, headers=headers, json={"input": input_data}, timeout=15)
-            response.raise_for_status()
-            
-            tool_output = response.json().get("output", "Respuesta de herramienta no encontrada.")
-            
-            if isinstance(tool_output, dict):
-                return json.dumps(tool_output, indent=2)
-            return tool_output
-            
-        except requests.exceptions.HTTPError as e:
-            return f"Error HTTP: {e.response.status_code}"
-        except Exception as e:
-            return f"Error en FastPath: {str(e)}"
-
     def execute(self, query: str) -> WorkflowResult:
-        """Ejecuta el Fast Path."""
+        """Ejecuta el Fast Path con herramientas locales."""
         print(f"\n⚡ FAST PATH WORKFLOW")
         print(f"   Query: '{query}'")
-
-        # ✅ Path sin /invoke - se añade automáticamente en _call_tool_server
-        tool_output = self._call_tool_server("/listarcampanas", {})
         
-        content = (
-            "🤖 Llamada directa a `listarcampanas`."
-            f"\n\n**Resultado:**\n```json\n{tool_output[:2000]}...\n```"
-        )
+        query_lower = query.lower()
         
-        return WorkflowResult(
-            content=content,
-            workflow_type="simple",
-            metadata={"tool_used": "/listarcampanas"}
-        )
+        try:
+            # Patrón: Lista de campañas
+            if "lista" in query_lower and ("campaña" in query_lower or "campana" in query_lower):
+                print("   🔧 Ejecutando: ListarCampanas (local)")
+                
+                # ✅ Llamada LOCAL (sin HTTP)
+                result = listar_campanas_func(ListarCampanasInput(limite=20))
+                
+                content = f"🤖 Llamada directa a herramienta local.\n\n**Resultado:**\n```json\n{result.campanas_json[:2000]}...\n```"
+                
+                return WorkflowResult(
+                    content=content,
+                    workflow_type="simple",
+                    metadata={"tool_used": "ListarCampanas", "local": True}
+                )
+            
+            # Si no hay patrón reconocido
+            return WorkflowResult(
+                content="Query no reconocida para FastPath. Usa workflow agéntico.",
+                workflow_type="simple",
+                metadata={"error": "no_pattern"}
+            )
+        
+        except Exception as e:
+            print(f"   ❌ Error en FastPath: {e}")
+            return WorkflowResult(
+                content=f"❌ Error en FastPath: {str(e)}",
+                workflow_type="error",
+                metadata={"error": str(e)}
+            )
 
 
 class AgenticWorkflow:
@@ -91,11 +87,10 @@ class AgenticWorkflow:
         print(f"   Thread ID: {thread_id}")
 
         try:
-            # ✅ CORRECTO: Dejar que LangGraph maneje la serialización automáticamente
             config = {"configurable": {"thread_id": thread_id}}
             input_message = HumanMessage(content=query)
             
-            # Invocar el agente SIN intentar serializar manualmente
+            # Invocar el agente
             final_state = self.agent.invoke({"messages": [input_message]}, config=config)
             
             # Extraer el último mensaje
@@ -157,4 +152,3 @@ class AgenticWorkflow:
                 workflow_type="agentic",
                 metadata={"error": str(e)}
             )
-

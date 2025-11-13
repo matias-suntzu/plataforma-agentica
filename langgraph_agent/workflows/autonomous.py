@@ -1,48 +1,45 @@
-"""TODO: Extraer de workflows_v2.py"""
-
 """
-Autonomous Optimization Workflow
+Autonomous Optimization Workflow - VERSIÓN UNIFICADA (sin HTTP)
 """
 from .base import WorkflowResult
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-import os
 import json
-import requests
+
+# ✅ Importar herramientas LOCALES
+from ..tools.recommendations import (
+    get_campaign_recommendations_func,
+    get_campaign_details_func
+)
+from ..tools.actions import update_adset_budget_func
+from ..models.schemas import (
+    GetCampaignRecommendationsInput,
+    GetCampaignDetailsInput,
+    UpdateAdsetBudgetInput
+)
+
 
 class AutonomousOptimizationWorkflow:
     """
-    🎯 WORKFLOW AUTÓNOMO DE OPTIMIZACIÓN (FASE 2)
+    🎯 WORKFLOW AUTÓNOMO DE OPTIMIZACIÓN (FASE 2) - UNIFICADO
     
     Flujo: Plan → Decide → Execute → Report
-    
-    1. Plan: Obtiene recomendaciones (GetCampaignRecommendations)
-    2. Decide: Evalúa si ejecutar basado en:
-       - Puntuación de oportunidad (opportunity_score >= threshold)
-       - Prioridad (high/medium)
-       - Modo autónomo (require_approval=False)
-    3. Execute: Ejecuta acciones (UpdateAdsetBudget) si cumple criterios
-    4. Report: Genera reporte de acciones tomadas
     """
     
     def __init__(
         self,
-        langserve_url: str,
-        api_key: str,
         agent_app,
         auto_execute_threshold: int = 3,
         require_approval: bool = False
     ):
         """
+        ✅ CAMBIO: Ya NO recibe langserve_url ni api_key
+        
         Args:
-            langserve_url: URL del servidor de herramientas
-            api_key: API Key para autenticación
             agent_app: Instancia del agente LangGraph
             auto_execute_threshold: Puntos mínimos para ejecución automática (default: 3)
             require_approval: Si True, solo simula (default: False = modo autónomo)
         """
-        self.langserve_url = langserve_url
-        self.api_key = api_key
         self.agent_app = agent_app
         self.auto_execute_threshold = auto_execute_threshold
         self.require_approval = require_approval
@@ -54,14 +51,6 @@ class AutonomousOptimizationWorkflow:
     def execute(self, query: str, thread_id: str, campaign_id: Optional[str] = None) -> WorkflowResult:
         """
         Ejecuta el flujo autónomo de optimización.
-        
-        Args:
-            query: Query del usuario (ej. "optimiza automáticamente mis campañas")
-            thread_id: ID del thread para contexto
-            campaign_id: ID de campaña específica o None para todas
-            
-        Returns:
-            WorkflowResult con el reporte de acciones
         """
         print("\n" + "="*70)
         print("🎯 AUTONOMOUS OPTIMIZATION WORKFLOW")
@@ -137,36 +126,22 @@ class AutonomousOptimizationWorkflow:
     
     def _get_recommendations(self, campaign_id: Optional[str]) -> Dict[str, Any]:
         """
-        ✅ FIX: Añadido /invoke
-        Llama a GetCampaignRecommendations.
+        ✅ Llama a GetCampaignRecommendations LOCAL (sin HTTP).
         """
-        url = f"{self.langserve_url}/getcampaignrecommendations/invoke"
-        headers = {"X-Tool-Api-Key": self.api_key, "Content-Type": "application/json"}
-        
         try:
-            response = requests.post(
-                url,
-                headers=headers,
-                json={"input": {"campana_id": campaign_id}},
-                timeout=30
-            )
-            response.raise_for_status()
+            input_data = GetCampaignRecommendationsInput(campana_id=campaign_id)
+            result = get_campaign_recommendations_func(input_data)
             
-            output = response.json().get('output', {})
-            datos_json = output.get('datos_json', '{}')
-            
-            return json.loads(datos_json)
+            # El resultado viene en result.datos_json
+            return json.loads(result.datos_json)
         
         except Exception as e:
+            print(f"   ❌ Error: {e}")
             return {"error": str(e)}
     
     def _decide_actions(self, recommendations: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Evalúa recomendaciones y decide qué acciones ejecutar.
-        
-        Criterios:
-        - Solo considera campañas con opportunity_score >= threshold
-        - Prioriza recomendaciones de tipo "advantage_plus_audience" y "low_budget"
         """
         actions = []
         
@@ -186,7 +161,6 @@ class AutonomousOptimizationWorkflow:
                 
                 # Solo actuar sobre tipos específicos
                 if rec_type == "low_budget" and priority in ["high", "medium"]:
-                    # Extraer adset name para buscar ID
                     adset_name = rec.get('adset', '')
                     
                     actions.append({
@@ -195,14 +169,13 @@ class AutonomousOptimizationWorkflow:
                         "campaign_name": campaign_name,
                         "adset_name": adset_name,
                         "current_budget": rec.get('current_budget_eur', 5.0),
-                        "recommended_budget": 15.0,  # Recomendación estándar
+                        "recommended_budget": 15.0,
                         "reason": rec['title'],
                         "priority": priority,
                         "points": rec['points']
                     })
                 
                 elif rec_type == "advantage_plus_audience" and priority == "high":
-                    # Esta acción requeriría una herramienta EnableAdvantageplus (pendiente ROL 2)
                     actions.append({
                         "type": "enable_advantage_plus",
                         "campaign_id": campaign_id,
@@ -218,15 +191,12 @@ class AutonomousOptimizationWorkflow:
     
     def _should_execute(self, action: Dict[str, Any]) -> bool:
         """Determina si una acción debe ejecutarse."""
-        # Si require_approval está activo, nunca ejecutar automáticamente
         if self.require_approval:
             return False
         
-        # Solo ejecutar acciones de tipo update_budget (las demás no están implementadas)
         if action['type'] != 'update_budget':
             return False
         
-        # Verificar que tenga datos suficientes
         if not action.get('adset_name'):
             return False
         
@@ -247,12 +217,8 @@ class AutonomousOptimizationWorkflow:
     
     def _execute_budget_update(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
-        ✅ FIX: Añadido /invoke
-        Ejecuta actualización de presupuesto vía UpdateAdsetBudget.
+        ✅ Ejecuta actualización de presupuesto LOCAL (sin HTTP).
         """
-        # Primero necesitamos obtener el adset_id desde el nombre
-        # Esto requiere llamar a GetCampaignDetails
-        
         try:
             # 1. Obtener detalles de la campaña para encontrar el adset_id
             details = self._get_campaign_details(action['campaign_id'])
@@ -278,32 +244,21 @@ class AutonomousOptimizationWorkflow:
                     "result": f"No se encontró adset '{action['adset_name']}'"
                 }
             
-            # 3. Ejecutar UpdateAdsetBudget
-            url = f"{self.langserve_url}/updateadsetbudget/invoke"
-            headers = {"X-Tool-Api-Key": self.api_key, "Content-Type": "application/json"}
-            
-            response = requests.post(
-                url,
-                headers=headers,
-                json={
-                    "input": {
-                        "adset_id": adset_id,
-                        "new_daily_budget_eur": action['recommended_budget'],
-                        "reason": f"Optimización autónoma: {action['reason']}"
-                    }
-                },
-                timeout=30
+            # 3. Ejecutar UpdateAdsetBudget LOCAL
+            input_data = UpdateAdsetBudgetInput(
+                adset_id=adset_id,
+                new_daily_budget_eur=action['recommended_budget'],
+                reason=f"Optimización autónoma: {action['reason']}"
             )
-            response.raise_for_status()
             
-            output = response.json().get('output', {})
+            result = update_adset_budget_func(input_data)
             
             return {
                 **action,
                 "executed": True,
                 "adset_id": adset_id,
-                "result": output.get('message', 'Actualizado'),
-                "success": output.get('success', False)
+                "result": result.message,
+                "success": result.success
             }
         
         except Exception as e:
@@ -315,25 +270,16 @@ class AutonomousOptimizationWorkflow:
     
     def _get_campaign_details(self, campaign_id: str) -> Dict[str, Any]:
         """
-        ✅ FIX: Añadido /invoke
-        Obtiene detalles de una campaña.
+        ✅ Obtiene detalles de una campaña LOCAL (sin HTTP).
         """
-        url = f"{self.langserve_url}/getcampaigndetails/invoke"
-        headers = {"X-Tool-Api-Key": self.api_key, "Content-Type": "application/json"}
-        
         try:
-            response = requests.post(
-                url,
-                headers=headers,
-                json={"input": {"campana_id": campaign_id, "include_adsets": True}},
-                timeout=30
+            input_data = GetCampaignDetailsInput(
+                campana_id=campaign_id,
+                include_adsets=True
             )
-            response.raise_for_status()
+            result = get_campaign_details_func(input_data)
             
-            output = response.json().get('output', {})
-            datos_json = output.get('datos_json', '{}')
-            
-            return json.loads(datos_json)
+            return json.loads(result.datos_json)
         
         except Exception as e:
             return {"error": str(e)}
@@ -346,10 +292,8 @@ class AutonomousOptimizationWorkflow:
     ) -> WorkflowResult:
         """Genera reporte final del workflow."""
         
-        # Construir reporte
         report_parts = ["# 🎯 REPORTE DE OPTIMIZACIÓN AUTÓNOMA\n"]
         
-        # Resumen ejecutivo
         total_campaigns = recommendations.get('campaigns_with_opportunities', 0)
         total_score = recommendations.get('total_opportunity_score', 0)
         
@@ -359,7 +303,6 @@ class AutonomousOptimizationWorkflow:
         report_parts.append(f"- **Puntuación total**: {total_score} puntos")
         report_parts.append(f"- **Acciones ejecutadas**: {len([a for a in executed_actions if a.get('executed')])}/{len(executed_actions)}\n")
         
-        # Acciones ejecutadas
         if executed_actions:
             report_parts.append("## ⚡ Acciones Ejecutadas")
             
@@ -382,7 +325,6 @@ class AutonomousOptimizationWorkflow:
             report_parts.append("- No se encontraron oportunidades que cumplan el umbral de ejecución")
             report_parts.append(f"- Umbral actual: {self.auto_execute_threshold} puntos")
         
-        # Recomendaciones restantes
         report_parts.append("\n## 💡 Recomendaciones Adicionales")
         
         for campaign in recommendations.get('recommendations_by_campaign', [])[:3]:
@@ -391,7 +333,6 @@ class AutonomousOptimizationWorkflow:
             for rec in campaign['recommendations'][:2]:
                 report_parts.append(f"- {rec['title']} (Prioridad: {rec['priority']})")
         
-        # Footer
         report_parts.append(f"\n---")
         report_parts.append(f"*Generado automáticamente el {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         report_parts.append(f"*Modo: {'SIMULACIÓN' if self.require_approval else 'AUTÓNOMO'}*")
