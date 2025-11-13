@@ -30,6 +30,26 @@ class Settings:
     SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
     N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
     
+    # ✅ Mapeos de destinos (para campaigns.py)
+    DESTINO_MAPPING = {
+        "baqueira": "baqueira",
+        "costa blanca": "costablanca",
+        "costa del sol": "costasol",
+        "costa de la luz": "costaluz",
+        "ibiza": "ibiza",
+        "menorca": "menorca",
+        "formentera": "formentera",
+        "cantabria": "cantabria",
+    }
+    
+    # ✅ Mapeo de estrategias de puja (para recommendations.py)
+    BID_STRATEGY_MAP = {
+        "LOWEST_COST_WITHOUT_CAP": "Costo más bajo sin límite",
+        "LOWEST_COST_WITH_BID_CAP": "Costo más bajo con límite",
+        "COST_CAP": "Límite de costo",
+        "LOWEST_COST_WITH_MIN_ROAS": "Costo más bajo con ROAS mínimo",
+    }
+    
     # Validar configuración crítica
     @classmethod
     def validate(cls):

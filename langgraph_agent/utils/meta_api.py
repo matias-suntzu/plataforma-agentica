@@ -1,50 +1,49 @@
-"""Inicialización y gestión de Meta Ads API"""
+"""
+Inicialización de la API de Meta/Facebook Business
+"""
 
 import logging
 from facebook_business.api import FacebookAdsApi
 from facebook_business.adobjects.adaccount import AdAccount
-from config.settings import settings
+
+from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Variable global para la cuenta
-account = None
+# Variable global para la API
+_api_initialized = False
 
 
-def init_meta_api():
-    """
-    Inicializa Meta Ads API y retorna la cuenta.
-    Solo se ejecuta una vez (singleton pattern).
-    """
-    global account
+def init_api():
+    """Inicializa la API de Facebook Business."""
+    global _api_initialized
+    
+    if _api_initialized:
+        return
     
     try:
-        if settings.ACCESS_TOKEN:
-            FacebookAdsApi.init(
-                app_id=settings.APP_ID,
-                app_secret=settings.APP_SECRET,
-                access_token=settings.ACCESS_TOKEN
-            )
-            account = AdAccount(settings.AD_ACCOUNT_ID)
-            logger.info(f"✅ Meta Ads API inicializada: {settings.AD_ACCOUNT_ID}")
-            return account
-        else:
-            logger.error("❌ ACCESS_TOKEN no configurado en .env")
-            return None
-    
+        FacebookAdsApi.init(
+            app_id=settings.META_APP_ID,
+            app_secret=settings.META_APP_SECRET,
+            access_token=settings.META_ACCESS_TOKEN
+        )
+        _api_initialized = True
+        logger.info("✅ API de Meta Ads inicializada correctamente")
     except Exception as e:
         logger.error(f"❌ Error inicializando Meta Ads API: {e}")
-        return None
+        raise
 
 
 def get_account():
-    """
-    Retorna la cuenta inicializada (lazy loading).
-    Si no está inicializada, la inicializa automáticamente.
-    """
-    global account
+    """Retorna la instancia de AdAccount después de inicializar la API."""
+    if not _api_initialized:
+        init_api()
     
-    if account is None:
-        account = init_meta_api()
-    
-    return account
+    return AdAccount(fbid=settings.AD_ACCOUNT_ID)
+
+
+# Inicializar automáticamente al importar (opcional)
+try:
+    init_api()
+except Exception as e:
+    logger.warning(f"⚠️ No se pudo inicializar API al importar: {e}")
