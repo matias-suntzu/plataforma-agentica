@@ -28,11 +28,17 @@ load_dotenv()
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "meta-ads-agent"
 
-LANGSERVE_URL = os.getenv("TOOL_SERVER_BASE_URL", "http://localhost:8000")
+#LANGSERVE_URL = os.getenv("TOOL_SERVER_BASE_URL", "http://localhost:8000")
 GEMINI_MODEL = "gemini-2.5-flash"
 
 if not os.getenv("GEMINI_API_KEY"):
     raise ValueError("Falta GEMINI_API_KEY")
+
+# Verificar LangSmith (opcional, solo para logs)
+if os.getenv("LANGCHAIN_API_KEY"):
+    print("✅ LangSmith configurado")
+else:
+    print("⚠️  LangSmith no configurado (continúa sin tracing)")
 
 # ========== ESTADO DEL AGENTE ==========
 class AgentState(TypedDict):
@@ -171,7 +177,7 @@ memory_manager = MemoryManager()
 print("✅ Gestor de memoria inicializado")
 
 print("✅ Conexión con Gemini API exitosa.")
-print(f"🚀 Agente Inicializado (Conexión LangServe: {LANGSERVE_URL})")
+print("🚀 Agente Inicializado (MODO UNIFICADO - Herramientas locales)")
 print("-" * 50)
 
 # ========== NODOS DEL GRAFO ==========
@@ -212,16 +218,40 @@ def call_llm(state: AgentState) -> Dict[str, Any]:
 
 
 def execute_tools(state: AgentState) -> Dict[str, Any]:
-    tool_map = {
-        "ObtenerAnunciosPorRendimientoInput": f"{LANGSERVE_URL}/obteneranunciosrendimiento/invoke",
-        "BuscarIdCampanaInput": f"{LANGSERVE_URL}/buscaridcampana/invoke",
-        "EnviarAlertaSlackInput": f"{LANGSERVE_URL}/enviaralertaslack/invoke",
-        "ListarCampanasInput": f"{LANGSERVE_URL}/listarcampanas/invoke",
-        "GenerarReporteGoogleSlidesInput": f"{LANGSERVE_URL}/generar_reporte_slides/invoke",
-        "GetAllCampaignsMetricsInput": f"{LANGSERVE_URL}/getallcampaignsmetrics/invoke",
-        "GetCampaignRecommendationsInput": f"{LANGSERVE_URL}/getcampaignrecommendations/invoke",
-        "GetCampaignDetailsInput": f"{LANGSERVE_URL}/getcampaigndetails/invoke",
-        "UpdateAdsetBudgetInput": f"{LANGSERVE_URL}/updateadsetbudget/invoke",
+    """
+    Ejecuta herramientas LOCALMENTE (sin HTTP requests)
+    """
+    # ✅ Importar herramientas locales
+    from ..tools.ads import obtener_anuncios_por_rendimiento_func
+    from ..tools.campaigns import buscar_id_campana_func, listar_campanas_func
+    from ..tools.integrations import enviar_alerta_slack_func, generar_reporte_google_slides_func
+    from ..tools.metrics import get_all_campaigns_metrics_func
+    from ..tools.recommendations import get_campaign_recommendations_func, get_campaign_details_func
+    from ..tools.actions import update_adset_budget_func
+    
+    from ..models.schemas import (
+        ObtenerAnunciosPorRendimientoInput,
+        BuscarIdCampanaInput,
+        ListarCampanasInput,
+        EnviarAlertaSlackInput,
+        GenerarReporteGoogleSlidesInput,
+        GetAllCampaignsMetricsInput,
+        GetCampaignRecommendationsInput,
+        GetCampaignDetailsInput,
+        UpdateAdsetBudgetInput
+    )
+    
+    # Mapeo de herramientas a funciones locales
+    tool_function_map = {
+        "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
+        "BuscarIdCampanaInput": (buscar_id_campana_func, BuscarIdCampanaInput),
+        "ListarCampanasInput": (listar_campanas_func, ListarCampanasInput),
+        "EnviarAlertaSlackInput": (enviar_alerta_slack_func, EnviarAlertaSlackInput),
+        "GenerarReporteGoogleSlidesInput": (generar_reporte_google_slides_func, GenerarReporteGoogleSlidesInput),
+        "GetAllCampaignsMetricsInput": (get_all_campaigns_metrics_func, GetAllCampaignsMetricsInput),
+        "GetCampaignRecommendationsInput": (get_campaign_recommendations_func, GetCampaignRecommendationsInput),
+        "GetCampaignDetailsInput": (get_campaign_details_func, GetCampaignDetailsInput),
+        "UpdateAdsetBudgetInput": (update_adset_budget_func, UpdateAdsetBudgetInput),
     }
     
     last_message = state["messages"][-1]
@@ -230,8 +260,8 @@ def execute_tools(state: AgentState) -> Dict[str, Any]:
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {"messages": []}
     
-
     for tool_call in last_message.tool_calls:
+        # Extraer información del tool_call
         if isinstance(tool_call, dict):
             tool_name = tool_call.get('name')
             tool_args = tool_call.get('args', {})
@@ -241,38 +271,49 @@ def execute_tools(state: AgentState) -> Dict[str, Any]:
             tool_args = tool_call.args
             tool_id = tool_call.id
         
-        tool_url = tool_map.get(tool_name)
+        # Buscar la función correspondiente
+        tool_info = tool_function_map.get(tool_name)
         
-        if not tool_url:
+        if not tool_info:
             results.append(ToolMessage(
-                content=f"Error: Herramienta {tool_name} no mapeada.",
+                content=f"Error: Herramienta {tool_name} no encontrada.",
                 tool_call_id=tool_id
             ))
             continue
         
+        tool_func, tool_input_class = tool_info
+        
         try:
-            headers = {
-                "Content-Type": "application/json",
-                "X-Tool-Api-Key": TOOL_API_KEY
-            }
-            response = requests.post(
-                tool_url,
-                headers=headers,
-                json={"input": tool_args},
-                timeout=60
-            )
+            # ✅ Crear el input Pydantic y llamar a la función LOCAL
+            tool_input = tool_input_class(**tool_args)
+            result = tool_func(tool_input)
             
-            if response.status_code == 200:
-                result_content = response.json().get('output', 'Error: Respuesta vacía')
+            # Extraer el contenido según el tipo de resultado
+            if hasattr(result, 'campanas_json'):
+                result_content = result.campanas_json
+            elif hasattr(result, 'datos_json'):
+                result_content = result.datos_json
+            elif hasattr(result, 'id_campana'):
+                result_content = json.dumps({
+                    "id_campana": result.id_campana,
+                    "nombre_encontrado": result.nombre_encontrado
+                })
+            elif hasattr(result, 'slides_url'):
+                result_content = result.slides_url
+            elif hasattr(result, 'resultado'):
+                result_content = result.resultado
+            elif hasattr(result, 'message'):
+                result_content = result.message
             else:
-                error_detail = response.json().get('detail', 'Sin detalle')
-                result_content = f"Error {response.status_code}: {error_detail}"
+                result_content = str(result)
             
-            results.append(ToolMessage(content=str(result_content), tool_call_id=tool_id))
+            results.append(ToolMessage(content=result_content, tool_call_id=tool_id))
         
         except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
             results.append(ToolMessage(
-                content=f"Error ejecutando {tool_name}: {str(e)}",
+                content=f"Error ejecutando {tool_name}: {str(e)}\n\nDetalle:\n{error_detail}",
                 tool_call_id=tool_id
             ))
     
