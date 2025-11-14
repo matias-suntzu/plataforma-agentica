@@ -28,7 +28,8 @@ export default function MetaAdsAgent() {
   const [status, setStatus] = useState<Status>({ type: 'idle', message: '' });
   const [darkMode, setDarkMode] = useState(false);
   const [showStats, setShowStats] = useState(true);
-  const [threadId] = useState(() => `thread_${Date.now()}`);
+  // ✅ CAMBIO: threadId ahora se actualiza con la respuesta del backend
+  const [threadId, setThreadId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -72,25 +73,44 @@ export default function MetaAdsAgent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: currentInput,
-          thread_id: threadId,
+          // ✅ CAMBIO: Enviar threadId solo si existe
+          ...(threadId && { thread_id: threadId }),
           user_id: 'demo_user'
         })
       });
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
 
       const data = await response.json();
+      
+      // ✅ CAMBIO CRÍTICO: Usar data.response en lugar de data.content
+      let messageContent = data.response;
+      
+      // ✅ CAMBIO: Si response es un objeto con type/text, extraer el texto
+      if (typeof messageContent === 'object' && messageContent.type === 'text') {
+        messageContent = messageContent.text;
+      }
+      
       const assistantMessage: Message = {
         role: 'assistant',
-        content: data.content,
+        content: messageContent,
         workflow_type: data.workflow_type,
         metadata: data.metadata,
-        timestamp: new Date(data.timestamp)
+        timestamp: new Date(data.timestamp || new Date())
       };
+
+      // ✅ CAMBIO: Guardar el thread_id para próximas queries
+      if (data.thread_id) {
+        setThreadId(data.thread_id);
+      }
 
       setMessages(prev => [...prev, assistantMessage]);
       setStatus({ type: 'success', message: 'Respuesta recibida' });
     } catch (error) {
+      console.error('Error completo:', error);
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}. Por favor, verifica que la API esté funcionando.`,
@@ -167,17 +187,30 @@ export default function MetaAdsAgent() {
             })}
           </div>
 
+          {/* ✅ CAMBIO: Mostrar thread_id actual */}
           <div className={`${darkMode ? 'bg-gradient-to-r from-blue-900/50 to-purple-900/50' : 'bg-gradient-to-r from-blue-50 to-purple-50'} p-4 rounded-xl border ${darkMode ? 'border-blue-800' : 'border-blue-100'}`}>
             <div className="flex items-center gap-2 mb-2">
               <Bot size={16} className="text-blue-600" />
               <span className={`text-sm font-semibold ${textClass}`}>Estado del Agente</span>
             </div>
             <p className={`text-xs ${secondaryTextClass}`}>
-              Thread: {threadId.slice(0, 20)}...
+              Thread: {threadId ? threadId.slice(0, 20) + '...' : 'No iniciado'}
             </p>
             <p className={`text-xs ${secondaryTextClass} mt-1`}>
               Mensajes: {messages.length}
             </p>
+            {/* ✅ NUEVO: Botón para reiniciar conversación */}
+            {threadId && (
+              <button
+                onClick={() => {
+                  setThreadId(null);
+                  setMessages([{ role: 'assistant', content: '¡Nueva conversación iniciada! ¿En qué puedo ayudarte?', timestamp: new Date() }]);
+                }}
+                className="mt-2 text-xs bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-lg transition-colors"
+              >
+                Nueva conversación
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -327,7 +360,7 @@ export default function MetaAdsAgent() {
               🚀 Powered by LangGraph + Render
             </p>
             <p className={`text-xs ${secondaryTextClass}`}>
-              {messages.length} mensajes
+              {messages.length} mensajes {threadId && `• Thread activo`}
             </p>
           </div>
         </div>
