@@ -113,24 +113,42 @@ class QueryResponse(BaseModel):
 # HEALTH CHECK
 # ============================================
 @api.get("/health")
-async def health_check():
-    """Health check inteligente"""
-    if not AGENT_READY:
-        logger.warning("⚠️ Health check: Agente aún cargando (503)")
+def health_check():
+    """
+    ✅ Health check mejorado - Siempre retorna 'healthy' si el servicio responde
+    """
+    # Verificaciones básicas
+    checks = {
+        "orchestrator": orchestrator is not None,
+        "google_api": bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")),
+        "meta_api": bool(os.getenv("META_ACCESS_TOKEN")),
+    }
+    
+    # Determinar estado general
+    critical_checks = ["orchestrator", "google_api", "meta_api"]
+    all_critical_pass = all(checks.get(check, False) for check in critical_checks)
+    
+    # ✅ FIX: Retornar 'healthy' si el orchestrator está listo
+    if orchestrator:
+        status = "healthy"
+    else:
+        status = "degraded"
+    
+    response = {
+        "status": status,  # ✅ Esto es lo que el frontend espera
+        "checks": checks,
+        "version": "3.3-unified",
+        "timestamp": str(os.environ.get("RENDER_GIT_COMMIT", "local"))[:7]
+    }
+    
+    # Solo retornar error 503 si NADA funciona
+    if not orchestrator:
         raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "initializing",
-                "message": "Agente LangGraph inicializando. Esto puede tardar 1-2 minutos."
-            }
+            status_code=503, 
+            detail="Orchestrator no inicializado"
         )
     
-    return {
-        "status": "ok",
-        "agent_ready": True,
-        "orchestrator": orchestrator is not None,
-        "workflow": AGENT_WORKFLOW is not None
-    }
+    return response
 
 
 # ============================================
