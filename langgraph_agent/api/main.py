@@ -1,6 +1,7 @@
 """
-Fix completo para main.py
-Reemplazar TODO el archivo con esto
+API FastAPI con Memoria usando thread_id
+✅ Sin AttributeError de 'timestamp'
+✅ Respuestas correctas al frontend
 """
 
 import os
@@ -79,7 +80,7 @@ async def lifespan(app: FastAPI):
 api = FastAPI(
     title="Meta Ads Agent API",
     description="Agente LangGraph con LangSmith para Meta Ads",
-    version="3.3-memory",
+    version="3.4-memory-fixed",
     lifespan=lifespan
 )
 
@@ -103,11 +104,11 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    response: str              # ← IMPORTANTE: "response" no "content"
+    response: str              # ← Lo que el frontend espera
     thread_id: str             # ← IMPORTANTE: incluir siempre
     workflow_type: str
     metadata: Dict[str, Any] = {}
-    timestamp: str
+    timestamp: str             # ← Lo generamos aquí
 
 
 # ============================================
@@ -125,20 +126,16 @@ def health_check():
         "meta_api": bool(os.getenv("META_ACCESS_TOKEN")),
     }
     
-    # Determinar estado general
-    critical_checks = ["orchestrator", "google_api", "meta_api"]
-    all_critical_pass = all(checks.get(check, False) for check in critical_checks)
-    
-    # ✅ FIX: Retornar 'healthy' si el orchestrator está listo
+    # ✅ Retornar 'healthy' si el orchestrator está listo
     if orchestrator:
         status = "healthy"
     else:
         status = "degraded"
     
     response = {
-        "status": status,  # ✅ Esto es lo que el frontend espera
+        "status": status,
         "checks": checks,
-        "version": "3.3-unified",
+        "version": "3.4-memory-fixed",
         "timestamp": str(os.environ.get("RENDER_GIT_COMMIT", "local"))[:7]
     }
     
@@ -195,13 +192,13 @@ async def process_query(request: QueryRequest):
         
         logger.info(f"✅ Query procesada - Thread: {thread_id}, Workflow: {result.workflow_type}")
         
-        # ✅ MAPEAR WorkflowResult a QueryResponse
+        # ✅ CREAR QueryResponse con timestamp generado aquí
         return QueryResponse(
-            response=result.content,      # ← Mapear "content" a "response"
-            thread_id=thread_id,           # ← Siempre incluir thread_id
+            response=result.content,           # ← Mapear "content" a "response"
+            thread_id=thread_id,               # ← Siempre incluir thread_id
             workflow_type=result.workflow_type,
-            metadata=result.metadata,
-            timestamp=result.timestamp
+            metadata=result.metadata or {},
+            timestamp=datetime.utcnow().isoformat()  # ✅ Generar timestamp aquí
         )
     
     except Exception as e:
@@ -238,7 +235,7 @@ async def root():
     """Endpoint raíz"""
     return {
         "service": "Meta Ads Agent API",
-        "version": "3.3-memory",
+        "version": "3.4-memory-fixed",
         "status": "operational" if AGENT_READY else "initializing",
         "endpoints": {
             "health": "/health",

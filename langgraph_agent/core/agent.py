@@ -1,26 +1,22 @@
 """
 Agente Principal de Meta Ads con LangGraph
-Versión: 3.3 (Con LangSmith)
+Versión: 3.4 (Con MemorySaver + LangSmith)
 """
 
 import os
 import json
 import uuid
 from datetime import datetime
-import calendar
 
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver  # ✅ CRITICAL: Para memoria
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
-import requests
 from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 
 from dotenv import load_dotenv
-
-from ..memory.rag_manager import RAGManager
-from ..memory.memory_manager import MemoryManager
 
 load_dotenv()
 
@@ -28,8 +24,7 @@ load_dotenv()
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "meta-ads-agent"
 
-#LANGSERVE_URL = os.getenv("TOOL_SERVER_BASE_URL", "http://localhost:8000")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash-exp"
 
 if not os.getenv("GEMINI_API_KEY"):
     raise ValueError("Falta GEMINI_API_KEY")
@@ -38,7 +33,7 @@ if not os.getenv("GEMINI_API_KEY"):
 if os.getenv("LANGSMITH_API_KEY"):
     print("✅ LangSmith configurado")
 else:
-    print("⚠️  LangSmith no configurado (continúa sin tracing)")
+    print("⚠️ LangSmith no configurado (continúa sin tracing)")
 
 # ========== ESTADO DEL AGENTE ==========
 class AgentState(TypedDict):
@@ -97,14 +92,21 @@ TOOLS = [
 SYSTEM_INSTRUCTION = f"""
 Eres un agente experto en análisis de Meta Ads para la cuenta act_952835605437684.
 
-🏖️ DESTINOS: Baqueira, Costa Blanca, Costa del Sol, Costa de la Luz, Ibiza, Menorca, Formentera, Cantabria
+🗺️ DESTINOS: Baqueira, Costa Blanca, Costa del Sol, Costa de la Luz, Ibiza, Menorca, Formentera, Cantabria
 
 🚨 REGLAS CRÍTICAS:
 
-1. **MEMORIA DE CONVERSACIÓN:**
-   - SIEMPRE revisa el historial de mensajes
-   - Para preguntas de seguimiento (ej: "¿cuál tiene mejor CPA?"), usa datos previos
-   - NO re-busques información que ya mostraste
+1. **MEMORIA DE CONVERSACIÓN - PRIORIDAD MÁXIMA:**
+   - 🔴 ANTES de responder, LEE TODO el historial de mensajes anteriores
+   - Si el usuario pregunta sobre "eso", "esa campaña", "ese anuncio" → BUSCA en mensajes previos
+   - Si ya mostraste datos de una campaña → NO la vuelvas a buscar, usa los datos previos
+   - Para preguntas como "¿qué recomiendas para mejorar?" → Si ya hablaste de una campaña específica, asume que se refiere a ESA
+   - NUNCA pidas aclaraciones si el contexto está en el historial
+   
+   Ejemplos de seguimiento:
+   - Usuario: "dame TOP 3 de Baqueira" → Respondes con datos
+   - Usuario: "¿qué recomiendas para mejorar el CPA?" → Asumes que habla de Baqueira (está en el historial)
+   - Usuario: "para esa campaña" → Identificas cuál campaña mencionó antes
 
 2. **FLUJO AUTOMÁTICO:**
    Cuando mencionen una campaña:
@@ -161,57 +163,44 @@ llm = ChatGoogleGenerativeAI(
 )
 llm_with_tools = llm.bind_tools(TOOLS)
 
-# RAG Manager
-print("📄 Inicializando base de conocimiento (RAG)...")
-rag_manager = RAGManager()
-try:
-    rag_manager.create_vectorstore()
-    print("✅ Base de conocimiento cargada exitosamente")
-except Exception as e:
-    print(f"⚠️ Advertencia: RAG no disponible: {e}")
-    rag_manager = None
-
-# Memory Manager
-print("📄 Inicializando gestor de memoria...")
-memory_manager = MemoryManager()
-print("✅ Gestor de memoria inicializado")
-
 print("✅ Conexión con Gemini API exitosa.")
 print("🚀 Agente Inicializado (MODO UNIFICADO - Herramientas locales)")
 print("-" * 50)
 
 # ========== NODOS DEL GRAFO ==========
 def call_llm(state: AgentState) -> Dict[str, Any]:
+    """
+    Nodo que llama al LLM con herramientas.
+    """
     messages = state["messages"]
     
+    # ✅ INYECTAR CONTEXTO DEL HISTORIAL
+    # Si hay más de 2 mensajes (hay historial), crear un resumen
+    if len(messages) > 2:
+        # Extraer menciones de campañas del historial
+        campaign_mentions = []
+        for msg in messages[:-1]:  # Todos menos el último (query actual)
+            content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+            # Buscar IDs de campaña en el historial
+            if '"id_campana":' in content or 'campaña' in content.lower() or 'baqueira' in content.lower():
+                campaign_mentions.append(content[:200])
+        
+        # Si encontramos menciones previas, agregarlas como contexto
+        if campaign_mentions:
+            context_msg = SystemMessage(
+                content=f"""[CONTEXTO DE CONVERSACIÓN ANTERIOR]
+El usuario ya habló sobre:
+{chr(10).join(f"- {m}" for m in campaign_mentions[:3])}
+
+IMPORTANTE: Si el usuario pregunta sobre "eso", "esa campaña", o hace seguimiento,
+asume que se refiere a la información ya discutida arriba."""
+            )
+            messages = [context_msg] + messages
+    
+    # Agregar system message si no existe
     has_system_message = any(isinstance(msg, SystemMessage) for msg in messages)
     if not has_system_message:
         messages = [SystemMessage(content=SYSTEM_INSTRUCTION)] + messages
-    
-    last_human_message = None
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            last_human_message = msg.content.lower()
-            break
-    
-    add_context = False
-    if last_human_message and rag_manager:
-        context_keywords = ["qué es vivla", "cómo funciona", "definición", "explica", "advantage"]
-        performance_keywords = ["anuncios", "top", "campaña", "rendimiento", "clicks", "cpa", "ctr"]
-        
-        if any(kw in last_human_message for kw in context_keywords):
-            add_context = True
-        elif any(kw in last_human_message for kw in performance_keywords):
-            add_context = False
-    
-    if add_context and rag_manager:
-        try:
-            context = rag_manager.get_context_for_query(last_human_message, k=2)
-            if context and "No se encontró" not in context:
-                context_message = AIMessage(content=f"[CONOCIMIENTO BASE]\n{context}")
-                messages = messages + [context_message]
-        except Exception:
-            pass
     
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
@@ -321,6 +310,9 @@ def execute_tools(state: AgentState) -> Dict[str, Any]:
 
 
 def should_continue(state: AgentState) -> str:
+    """
+    Decide si continuar ejecutando herramientas o terminar.
+    """
     last_message = state["messages"][-1]
     
     if hasattr(last_message, 'tool_calls'):
@@ -343,67 +335,56 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("execute_tools", "call_llm")
 
-# ========== COMPILACIÓN CON LANGSMITH ==========
+# ========== COMPILACIÓN CON MEMORYSAVER ==========
 
 print("\n" + "="*70)
-print("🚀 Compilando agente con LangSmith")
+print("🚀 Compilando agente con MemorySaver + LangSmith")
 print("="*70)
 
-# ✅ LangSmith maneja automáticamente:
-# - Checkpointing (persistencia)
-# - Tracing (observabilidad)
-# - Memory (estados conversacionales)
-# - Time-travel (debugging)
-
-app = workflow.compile()
+# ✅ CRITICAL: MemorySaver para persistencia de conversaciones
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)
 
 print(f"✅ Agente compilado exitosamente")
+print(f"🧠 Checkpointer: {type(app.checkpointer).__name__}")
 print(f"🌐 LangSmith Project: {os.getenv('LANGCHAIN_PROJECT', 'default')}")
 print(f"📊 Tracing: {os.getenv('LANGCHAIN_TRACING_V2', 'false')}")
-print(f"🎯 Versión: 3.2 FASE 2 + LangSmith")
+print(f"🎯 Versión: 3.4 MEMORIA + LangSmith")
 print(f"🛠️ 9 herramientas: 8 consultas + 1 acción")
 print("="*70 + "\n")
 
 
 # ========== SCRIPT DE PRUEBA ==========
 if __name__ == "__main__":
-    print("\n🧪 Testing SQLite Checkpointer...\n")
-    
-    # Mostrar estadísticas iniciales
-    print_checkpoint_stats()
+    print("\n🧪 Testing MemorySaver...\n")
     
     # Test básico de persistencia
-    test_thread = "test_checkpoint_001"
+    test_thread = "test_memory_001"
     
-    print(f"🔍 Creando conversación de prueba (thread: {test_thread})...")
+    print(f"📝 Creando conversación de prueba (thread: {test_thread})...")
     
-    config = RunnableConfig(configurable={"thread_id": test_thread})
+    config = {"configurable": {"thread_id": test_thread}}
     
     # Mensaje 1
+    print("\n🔵 TURNO 1:")
     result1 = app.invoke(
-        {"messages": [HumanMessage(content="Hola, soy una prueba de checkpoints")]},
+        {"messages": [HumanMessage(content="Hola, necesito ayuda con Meta Ads")]},
         config=config
     )
-    print("✅ Checkpoint 1 creado")
+    print(f"   Mensajes en estado: {len(result1['messages'])}")
+    print(f"   Última respuesta: {result1['messages'][-1].content[:100]}...")
     
-    # Mensaje 2
+    # Mensaje 2 (mismo thread - debe recordar)
+    print("\n🔵 TURNO 2 (debe recordar el contexto):")
     result2 = app.invoke(
-        {"messages": [HumanMessage(content="Lista todas las campañas")]},
+        {"messages": [HumanMessage(content="¿Qué me dijiste antes?")]},
         config=config
     )
-    print("✅ Checkpoint 2 creado")
+    print(f"   Mensajes en estado: {len(result2['messages'])}")
     
-    # Obtener historial
-    print(f"\n📜 Historial de checkpoints para {test_thread}:")
-    history = get_checkpoint_history(test_thread)
+    if len(result2['messages']) > 2:
+        print(f"   ✅ MEMORIA FUNCIONA: {len(result2['messages'])} mensajes en historial")
+    else:
+        print(f"   ❌ MEMORIA NO FUNCIONA: Solo {len(result2['messages'])} mensajes")
     
-    for i, cp in enumerate(history, 1):
-        print(f"   {i}. Checkpoint ID: {cp['checkpoint_id']}")
-        print(f"      Parent: {cp['parent_checkpoint_id']}")
-    
-    # Estadísticas finales
-    print_checkpoint_stats()
-    
-    print("✅ Tests completados")
-
-    
+    print("\n✅ Tests completados")
