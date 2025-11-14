@@ -1,154 +1,135 @@
 """
-Workflows base: WorkflowResult, FastPath, Agentic
-VERSIÓN UNIFICADA - Sin llamadas HTTP
+Workflows con memoria conversacional
+CRÍTICO: Usar RunnableConfig con thread_id
 """
+
 from typing import Dict, Any
-from datetime import datetime
+from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
-
-# ✅ Importar herramientas LOCALES
-from ..tools.campaigns import listar_campanas_func
-from ..models.schemas import ListarCampanasInput
+from langchain_core.runnables import RunnableConfig  # ← IMPORTANTE
 
 
-class WorkflowResult:
-    """Resultado estandarizado"""
-    def __init__(self, content: str, workflow_type: str, metadata: Dict[str, Any] = None):
-        self.content = content
-        self.workflow_type = workflow_type
-        self.metadata = metadata or {}
-        self.timestamp = datetime.now().isoformat()
-    
-    def to_dict(self):
-        return {
-            "content": self.content,
-            "workflow_type": self.workflow_type,
-            "metadata": self.metadata,
-            "timestamp": self.timestamp
-        }
+class WorkflowResult(BaseModel):
+    """Resultado de un workflow"""
+    content: str
+    workflow_type: str
+    metadata: Dict[str, Any] = {}
 
 
+# ============================================
+# FAST PATH (sin memoria - queries simples)
+# ============================================
 class FastPathWorkflow:
-    """Workflow SIMPLE - Respuesta directa sin agente usando herramientas locales."""
+    """Workflow para queries simples sin usar el agente"""
     
     def __init__(self):
-        """Ya NO necesita langserve_url ni api_key."""
-        pass
+        print("⚡ FastPath inicializado (sin memoria)")
     
     def execute(self, query: str) -> WorkflowResult:
-        """Ejecuta el Fast Path con herramientas locales."""
-        print(f"\n⚡ FAST PATH WORKFLOW")
-        print(f"   Query: '{query}'")
+        """
+        Ejecuta query simple SIN memoria.
+        No necesita thread_id porque no usa el agente.
+        """
+        from ..tools.campaigns import listar_campanas_func
+        from ..models.schemas import ListarCampanasInput
+        import json
         
         query_lower = query.lower()
         
-        try:
-            # Patrón: Lista de campañas
-            if "lista" in query_lower and ("campaña" in query_lower or "campana" in query_lower):
-                print("   🔧 Ejecutando: ListarCampanas (local)")
+        # Listar campañas
+        if any(kw in query_lower for kw in ["lista", "listar", "campañas"]):
+            try:
+                result = listar_campanas_func(ListarCampanasInput())
+                campanas = json.loads(result.campanas_json)
                 
-                # ✅ Llamada LOCAL (sin HTTP)
-                result = listar_campanas_func(ListarCampanasInput(limite=20))
+                if "error" in campanas:
+                    return WorkflowResult(
+                        content=f"❌ Error: {campanas['error']}",
+                        workflow_type="simple"
+                    )
                 
-                content = f"🤖 Llamada directa a herramienta local.\n\n**Resultado:**\n```json\n{result.campanas_json[:2000]}...\n```"
+                response = "📋 **Campañas activas:**\n\n"
+                for camp in campanas[:10]:
+                    response += f"- **{camp['name']}** (ID: `{camp['id']}`)\n"
                 
                 return WorkflowResult(
-                    content=content,
-                    workflow_type="simple",
-                    metadata={"tool_used": "ListarCampanas", "local": True}
+                    content=response,
+                    workflow_type="simple"
                 )
-            
-            # Si no hay patrón reconocido
-            return WorkflowResult(
-                content="Query no reconocida para FastPath. Usa workflow agéntico.",
-                workflow_type="simple",
-                metadata={"error": "no_pattern"}
-            )
+            except Exception as e:
+                return WorkflowResult(
+                    content=f"❌ Error: {str(e)}",
+                    workflow_type="simple"
+                )
         
-        except Exception as e:
-            print(f"   ❌ Error en FastPath: {e}")
-            return WorkflowResult(
-                content=f"❌ Error en FastPath: {str(e)}",
-                workflow_type="error",
-                metadata={"error": str(e)}
-            )
+        # Query no reconocida
+        return WorkflowResult(
+            content="⚠️ Query no reconocida para FastPath. Usar workflow agéntico.",
+            workflow_type="simple",
+            metadata={"fallback": True}
+        )
 
 
+# ============================================
+# AGENTIC WORKFLOW (CON MEMORIA)
+# ============================================
 class AgenticWorkflow:
-    """Workflow AGENTIC - Usa el agente con LangGraph para razonamiento."""
+    """
+    Workflow agéntico con memoria conversacional.
+    ✅ USA RunnableConfig con thread_id
+    """
     
     def __init__(self, agent_app):
-        self.agent = agent_app
+        self.agent_app = agent_app
+        print("🤖 AgenticWorkflow inicializado (con memoria)")
     
     def execute(self, query: str, thread_id: str) -> WorkflowResult:
-        """Ejecuta el workflow agéntico."""
-        print(f"\n🤖 AGENTIC WORKFLOW")
+        """
+        Ejecuta query con el agente LangGraph.
+        
+        ✅ CRÍTICO: Usar RunnableConfig con thread_id para memoria
+        """
+        print(f"🤖 AGENTIC WORKFLOW")
         print(f"   Query: '{query}'")
         print(f"   Thread ID: {thread_id}")
-
+        
         try:
-            config = {"configurable": {"thread_id": thread_id}}
+            # ✅ IMPORTANTE: Configurar con thread_id
+            config = RunnableConfig(
+                configurable={"thread_id": thread_id}  # ← Esto activa el checkpointing
+            )
+            
             input_message = HumanMessage(content=query)
             
-            # Invocar el agente
-            final_state = self.agent.invoke({"messages": [input_message]}, config=config)
+            # ✅ Invocar con config
+            result = self.agent_app.invoke(
+                {"messages": [input_message]},
+                config=config  # ← Pasar config con thread_id
+            )
             
-            # Extraer el último mensaje
-            final_message = final_state["messages"][-1]
-
-            # Procesar contenido del mensaje
-            def extract_text_from_gemini(content):
-                """Extrae texto limpio de respuestas de Gemini"""
-                if isinstance(content, dict):
-                    if "text" in content:
-                        return content["text"]
-                    elif "content" in content:
-                        return str(content["content"])
-                    else:
-                        # Filtrar 'extras' y convertir a string
-                        filtered = {k: v for k, v in content.items() if k != 'extras'}
-                        return str(filtered)
-                elif isinstance(content, list):
-                    texts = []
-                    for item in content:
-                        if isinstance(item, dict) and "text" in item:
-                            texts.append(item["text"])
-                        else:
-                            texts.append(str(item))
-                    return "\n".join(texts) if texts else "El agente ha finalizado sin respuesta."
-                else:
-                    return str(content)
+            # Extraer respuesta
+            final_message = result["messages"][-1]
             
-            content = extract_text_from_gemini(final_message.content)
-            
-            # Extraer metadatos de herramientas
-            metadata = {}
-            tools_used = []
-            
-            for msg in final_state["messages"]:
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        tool_name = tc.get('name') if isinstance(tc, dict) else tc.name
-                        tools_used.append(tool_name)
-            
-            if tools_used:
-                metadata["tools_used"] = list(set(tools_used))
-            
-            print(f"   ✅ Respuesta generada")
-            print(f"   📊 Herramientas: {metadata.get('tools_used', 'Ninguna')}")
+            if isinstance(final_message.content, str):
+                content = final_message.content
+            elif isinstance(final_message.content, list):
+                content = "\n".join([str(item) for item in final_message.content])
+            else:
+                content = str(final_message.content)
             
             return WorkflowResult(
                 content=content,
                 workflow_type="agentic",
-                metadata=metadata
+                metadata={"thread_id": thread_id}
             )
         
         except Exception as e:
-            print(f"   ❌ Error en workflow agéntico: {e}")
+            print(f"   ❌ Error en workflow agéntico: {str(e)}")
             import traceback
             traceback.print_exc()
+            
             return WorkflowResult(
-                content=f"❌ Error: {str(e)}",
+                content=f"❌ Error en agente: {str(e)}",
                 workflow_type="agentic",
-                metadata={"error": str(e)}
+                metadata={"error": str(e), "thread_id": thread_id}
             )

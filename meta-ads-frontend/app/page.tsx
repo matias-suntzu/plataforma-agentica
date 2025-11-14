@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, AlertCircle, CheckCircle, Bot, User } from 'lucide-react';
+import { Send, Loader2, AlertCircle, CheckCircle, Bot, User, Moon, Sun, TrendingUp, DollarSign, Target, BarChart3 } from 'lucide-react';
 
 const API_URL = 'https://plataforma-agentica.onrender.com';
 
@@ -26,6 +26,8 @@ export default function MetaAdsAgent() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<Status>({ type: 'idle', message: '' });
+  const [darkMode, setDarkMode] = useState(false);
+  const [showStats, setShowStats] = useState(true);
   const [threadId] = useState(() => `thread_${Date.now()}`);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -75,9 +77,7 @@ export default function MetaAdsAgent() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const data = await response.json();
       const assistantMessage: Message = {
@@ -103,72 +103,155 @@ export default function MetaAdsAgent() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
   const quickQuestions = [
-    "¿Qué campañas tengo activas?",
-    "Muéstrame el rendimiento de mis anuncios",
-    "¿Cuál es mi presupuesto actual?",
-    "Ayúdame a crear una nueva campaña"
+    "Lista todas las campañas",
+    "TOP 3 anuncios de Baqueira",
+    "¿Cuál fue el gasto esta semana?",
+    "Dame recomendaciones"
   ];
 
+  const stats = [
+    { icon: DollarSign, label: 'Gasto Hoy', value: '€342.50', change: '+12%', color: 'blue' },
+    { icon: Target, label: 'CPA Promedio', value: '€15.30', change: '-8%', color: 'green' },
+    { icon: TrendingUp, label: 'Conversiones', value: '23', change: '+15%', color: 'purple' },
+    { icon: BarChart3, label: 'CTR', value: '2.4%', change: '+0.3%', color: 'orange' }
+  ];
+
+  const bgClass = darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-white to-purple-50';
+  const cardClass = darkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white';
+  const textClass = darkMode ? 'text-white' : 'text-gray-900';
+  const secondaryTextClass = darkMode ? 'text-gray-400' : 'text-gray-500';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div className={`min-h-screen ${bgClass} flex transition-colors duration-300`}>
+      
+      {/* Sidebar de Estadísticas */}
+      {showStats && (
+        <div className={`w-80 ${cardClass} border-r p-6 space-y-6 transition-all duration-300`}>
+          <div className="flex items-center justify-between">
+            <h2 className={`text-lg font-bold ${textClass}`}>Dashboard</h2>
+            <button
+              onClick={() => setShowStats(false)}
+              className={`${secondaryTextClass} hover:${textClass} transition-colors`}
+            >
+              ←
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {stats.map((stat, idx) => {
+              const Icon = stat.icon;
+              const colorClass = {
+                blue: 'bg-blue-100 text-blue-600',
+                green: 'bg-green-100 text-green-600',
+                purple: 'bg-purple-100 text-purple-600',
+                orange: 'bg-orange-100 text-orange-600'
+              }[stat.color];
+
+              return (
+                <div key={idx} className={`${darkMode ? 'bg-gray-700/50' : 'bg-gray-50'} p-4 rounded-xl`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`p-2 rounded-lg ${colorClass}`}>
+                      <Icon size={20} />
+                    </div>
+                    <span className={`text-sm ${secondaryTextClass}`}>{stat.label}</span>
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <span className={`text-2xl font-bold ${textClass}`}>{stat.value}</span>
+                    <span className={`text-sm ${stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
+                      {stat.change}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={`${darkMode ? 'bg-gradient-to-r from-blue-900/50 to-purple-900/50' : 'bg-gradient-to-r from-blue-50 to-purple-50'} p-4 rounded-xl border ${darkMode ? 'border-blue-800' : 'border-blue-100'}`}>
+            <div className="flex items-center gap-2 mb-2">
+              <Bot size={16} className="text-blue-600" />
+              <span className={`text-sm font-semibold ${textClass}`}>Estado del Agente</span>
+            </div>
+            <p className={`text-xs ${secondaryTextClass}`}>
+              Thread: {threadId.slice(0, 20)}...
+            </p>
+            <p className={`text-xs ${secondaryTextClass} mt-1`}>
+              Mensajes: {messages.length}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Principal */}
+      <div className="flex-1 flex flex-col">
         
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6">
+        {/* Header */}
+        <div className={`${darkMode ? 'bg-gradient-to-r from-gray-800 to-gray-900' : 'bg-gradient-to-r from-blue-600 to-purple-600'} text-white p-6 shadow-lg`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-white/20 p-3 rounded-full">
+              {!showStats && (
+                <button
+                  onClick={() => setShowStats(true)}
+                  className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-colors"
+                >
+                  →
+                </button>
+              )}
+              <div className="bg-white/20 p-3 rounded-full backdrop-blur-sm">
                 <Bot size={24} />
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Meta Ads Agent</h1>
-                <p className="text-sm text-blue-100">Asistente inteligente para Meta Advertising</p>
+                <p className="text-sm text-blue-100">Asistente inteligente con LangGraph</p>
               </div>
             </div>
             
-            <div className="flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full">
-              {status.type === 'success' && <CheckCircle size={16} className="text-green-300" />}
-              {status.type === 'error' && <AlertCircle size={16} className="text-red-300" />}
-              {status.type === 'warning' && <AlertCircle size={16} className="text-yellow-300" />}
-              <span className="text-sm">{status.message || 'Verificando...'}</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-colors"
+              >
+                {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+              </button>
+              
+              <div className="flex items-center gap-2 bg-white/10 px-3 py-2 rounded-full backdrop-blur-sm">
+                {status.type === 'success' && <CheckCircle size={16} className="text-green-300" />}
+                {status.type === 'error' && <AlertCircle size={16} className="text-red-300" />}
+                {status.type === 'warning' && <AlertCircle size={16} className="text-yellow-300" />}
+                <span className="text-sm">{status.message || 'Verificando...'}</span>
+              </div>
             </div>
           </div>
         </div>
 
+        {/* Mensajes */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.map((msg, idx) => (
-            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg ${
                 msg.role === 'user' 
                   ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
                   : 'bg-gradient-to-br from-blue-500 to-cyan-500'
               }`}>
-                {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-white" />}
+                {msg.role === 'user' ? <User size={18} className="text-white" /> : <Bot size={18} className="text-white" />}
               </div>
               
               <div className={`flex-1 ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
-                <div className={`inline-block p-4 rounded-2xl max-w-[80%] ${
+                <div className={`inline-block p-4 rounded-2xl max-w-[85%] shadow-md ${
                   msg.role === 'user'
                     ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
                     : msg.isError
-                    ? 'bg-red-50 text-red-900 border border-red-200'
-                    : 'bg-gray-100 text-gray-900'
+                    ? darkMode ? 'bg-red-900/50 text-red-200 border border-red-700' : 'bg-red-50 text-red-900 border border-red-200'
+                    : darkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-100 text-gray-900'
                 }`}>
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   {msg.workflow_type && (
-                    <div className="mt-2 pt-2 border-t border-gray-300/30">
-                      <span className="text-xs opacity-75">Workflow: {msg.workflow_type}</span>
+                    <div className="mt-3 pt-3 border-t border-white/20">
+                      <span className="text-xs opacity-75 font-mono">⚡ {msg.workflow_type}</span>
                     </div>
                   )}
                 </div>
-                <span className="text-xs text-gray-400 mt-1 block">
+                <span className={`text-xs ${secondaryTextClass} mt-1 block`}>
                   {msg.timestamp.toLocaleTimeString()}
                 </span>
               </div>
@@ -176,12 +259,16 @@ export default function MetaAdsAgent() {
           ))}
           
           {loading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
-                <Bot size={16} className="text-white" />
+            <div className="flex gap-3 animate-in fade-in duration-300">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg">
+                <Bot size={18} className="text-white" />
               </div>
-              <div className="bg-gray-100 p-4 rounded-2xl">
-                <Loader2 className="animate-spin text-gray-600" size={20} />
+              <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-100'} p-4 rounded-2xl shadow-md`}>
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
               </div>
             </div>
           )}
@@ -189,15 +276,20 @@ export default function MetaAdsAgent() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Quick Questions */}
         {messages.length === 1 && (
           <div className="px-6 pb-4">
-            <p className="text-sm text-gray-500 mb-2">Preguntas rápidas:</p>
+            <p className={`text-sm ${secondaryTextClass} mb-3 font-medium`}>⚡ Preguntas rápidas:</p>
             <div className="grid grid-cols-2 gap-2">
               {quickQuestions.map((q, idx) => (
                 <button
                   key={idx}
                   onClick={() => setInput(q)}
-                  className="text-left text-sm p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
+                  className={`text-left text-sm p-3 rounded-lg transition-all border-2 hover:scale-105 ${
+                    darkMode 
+                      ? 'bg-gray-700 hover:bg-gray-600 border-gray-600' 
+                      : 'bg-white hover:bg-gray-50 border-gray-200'
+                  }`}
                 >
                   {q}
                 </button>
@@ -206,28 +298,38 @@ export default function MetaAdsAgent() {
           </div>
         )}
 
-        <div className="p-6 border-t bg-gray-50">
+        {/* Input */}
+        <div className={`p-6 border-t ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex gap-3">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Escribe tu pregunta sobre Meta Ads..."
+              onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              placeholder="Pregúntame sobre tus campañas de Meta Ads..."
               disabled={loading}
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className={`flex-1 px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+                darkMode 
+                  ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                  : 'bg-white border-gray-300 text-gray-900'
+              }`}
             />
             <button
               onClick={sendMessage}
               disabled={loading || !input.trim()}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg"
+              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl hover:scale-105"
             >
               {loading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2 text-center">
-            Powered by LangGraph + Meta Ads API
-          </p>
+          <div className="flex items-center justify-between mt-3">
+            <p className={`text-xs ${secondaryTextClass}`}>
+              🚀 Powered by LangGraph + Render
+            </p>
+            <p className={`text-xs ${secondaryTextClass}`}>
+              {messages.length} mensajes
+            </p>
+          </div>
         </div>
       </div>
     </div>

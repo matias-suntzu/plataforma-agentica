@@ -1,2 +1,4 @@
 # Excluir el archivo de variables de entorno
+venv/
+.venv/
 .env

@@ -35,7 +35,7 @@ if not os.getenv("GEMINI_API_KEY"):
     raise ValueError("Falta GEMINI_API_KEY")
 
 # Verificar LangSmith (opcional, solo para logs)
-if os.getenv("LANGCHAIN_API_KEY"):
+if os.getenv("LANGSMITH_API_KEY"):
     print("✅ LangSmith configurado")
 else:
     print("⚠️  LangSmith no configurado (continúa sin tracing)")

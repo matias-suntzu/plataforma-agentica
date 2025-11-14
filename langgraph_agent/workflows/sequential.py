@@ -1,28 +1,57 @@
-"""
-Sequential Workflow - VERSIÓN UNIFICADA
-"""
-from .base import WorkflowResult, AgenticWorkflow
+
+from .base import WorkflowResult
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 
 class SequentialWorkflow:
-    """Workflow SEQUENTIAL - Flujos multi-paso predefinidos."""
+    """
+    Workflow secuencial (multi-paso).
+    ✅ USA RunnableConfig con thread_id
+    """
     
     def __init__(self, agent_app):
-        """
-        ✅ CAMBIO: Ya NO recibe langserve_url ni api_key
-        
-        Args:
-            agent_app: Instancia del agente LangGraph compilado
-        """
         self.agent_app = agent_app
+        print("🔗 SequentialWorkflow inicializado (con memoria)")
     
     def execute(self, query: str, thread_id: str) -> WorkflowResult:
-        """Ejecuta el flujo secuencial."""
-        print(f"\n🔗 SEQUENTIAL WORKFLOW")
+        """
+        Ejecuta workflow multi-paso CON memoria.
+        """
+        print(f"🔗 SEQUENTIAL WORKFLOW")
         print(f"   Query: '{query}'")
+        print(f"   Thread ID: {thread_id}")
         
-        # Delegar al workflow agéntico
-        agentic = AgenticWorkflow(self.agent_app)
-        result = agentic.execute(query, thread_id)
-        result.workflow_type = "sequential"
+        try:
+            # ✅ IMPORTANTE: Configurar con thread_id
+            config = RunnableConfig(
+                configurable={"thread_id": thread_id}
+            )
+            
+            input_message = HumanMessage(content=query)
+            
+            # ✅ Invocar con config
+            result = self.agent_app.invoke(
+                {"messages": [input_message]},
+                config=config
+            )
+            
+            # Extraer respuesta
+            final_message = result["messages"][-1]
+            content = final_message.content if isinstance(final_message.content, str) else str(final_message.content)
+            
+            return WorkflowResult(
+                content=content,
+                workflow_type="sequential",
+                metadata={"thread_id": thread_id}
+            )
         
-        return result
+        except Exception as e:
+            print(f"   ❌ Error en sequential workflow: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            return WorkflowResult(
+                content=f"❌ Error: {str(e)}",
+                workflow_type="sequential",
+                metadata={"error": str(e), "thread_id": thread_id}
+            )
