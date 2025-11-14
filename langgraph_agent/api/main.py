@@ -107,6 +107,7 @@ class QueryResponse(BaseModel):
     thread_id: str             # ← IMPORTANTE: incluir siempre
     workflow_type: str
     metadata: Dict[str, Any] = {}
+    timestamp: str
 
 
 # ============================================
@@ -199,7 +200,8 @@ async def process_query(request: QueryRequest):
             response=result.content,      # ← Mapear "content" a "response"
             thread_id=thread_id,           # ← Siempre incluir thread_id
             workflow_type=result.workflow_type,
-            metadata=result.metadata
+            metadata=result.metadata,
+            timestamp=result.timestamp
         )
     
     except Exception as e:
