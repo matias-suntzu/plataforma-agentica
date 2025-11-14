@@ -34,7 +34,7 @@ class WorkflowResult(BaseModel):
     content: str
     workflow_type: str
     metadata: Dict[str, Any] = {}
-    timestamp: str
+    
 
 
 # =======================================================
