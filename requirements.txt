@@ -5,11 +5,11 @@
   python-dotenv==1.0.0
   
   # LangChain + LangGraph
-  langchain==0.1.5
+  langchain==1.0.8
   langchain-core==1.0.6
-  langchain-google-genai==0.0.6
-  langgraph==0.0.20
-  langchain-community==0.0.20
+  langchain-google-genai==3.1.0
+  langgraph==1.0.3
+  langchain-community==0.4.1
   
   # Meta Ads
   facebook-business==19.0.0
