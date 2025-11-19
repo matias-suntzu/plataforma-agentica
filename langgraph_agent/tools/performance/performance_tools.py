@@ -23,6 +23,8 @@ from ...utils.destination_classifier import (
       get_top_destinations
   )
 
+from typing import List
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +119,7 @@ class ObtenerMetricasAdsetOutput(BaseModel):
 
 class CompararDestinosInput(BaseModel):
     """Compara rendimiento entre destinos"""
-    destinos: list = Field(description="Lista de destinos a comparar")
+    destinos: List[str] = Field(description="Lista de destinos a comparar")
     date_preset: str = Field(default="last_7d", description="Período")
 
 
