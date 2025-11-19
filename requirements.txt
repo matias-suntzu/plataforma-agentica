@@ -6,7 +6,7 @@
   
   # LangChain + LangGraph
   langchain==0.1.5
-  langchain-core==0.1.20
+  langchain-core==1.0.6
   langchain-google-genai==0.0.6
   langgraph==0.0.20
   langchain-community==0.0.20
