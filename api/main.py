@@ -20,6 +20,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "meta-ads-agent"
+os.environ["LANGSMITH_TRACING"] = "true"
+
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
