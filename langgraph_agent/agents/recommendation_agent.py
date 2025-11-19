@@ -7,6 +7,8 @@ import os
 from datetime import datetime
 from typing import TypedDict, Annotated, List
 
+import json
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
