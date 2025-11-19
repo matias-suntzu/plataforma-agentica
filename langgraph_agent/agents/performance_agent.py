@@ -26,6 +26,10 @@ from ..tools.performance.performance_tools import (
     ObtenerCPAGlobalInput,
     ObtenerMetricasAdsetInput,
     CompararDestinosInput,
+    obtener_metricas_por_destino_func,
+    obtener_cpa_global_func,
+    obtener_metricas_adset_func,
+    comparar_destinos_func,
 )
 
 
