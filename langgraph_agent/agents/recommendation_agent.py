@@ -19,6 +19,10 @@ from ..tools.recommendations.recommendation_tools import (
     analizar_oportunidad_func
 )
 
+from ..tools.config.config_tools import (
+    BuscarCampanaPorNombreInput,
+    buscar_campana_por_nombre_func
+)
 
 # ========== ESTADO ==========
 
@@ -32,6 +36,7 @@ class RecommendationAgentState(TypedDict):
 RECOMMENDATION_TOOLS = [
     ObtenerRecomendacionesInput,
     AnalizarOpportunidadInput,
+    BuscarCampanaPorNombreInput,
 ]
 
 
@@ -53,12 +58,25 @@ Responder SOLO preguntas sobre:
 → Si te preguntan sobre esto, deriva al agente correcto
 
 📋 FLUJO DE TRABAJO:
-1. Si piden "recomendaciones" de UNA campaña → ObtenerRecomendacionesInput(campana_id=X)
-2. Si piden "recomendaciones" de TODAS → ObtenerRecomendacionesInput(campana_id="None")
-3. Si piden análisis específico (ej: "¿cuántos adsets sin Advantage+?") → AnalizarOpportunidadInput
+
+1. **Si mencionan un NOMBRE de campaña** (ej: "Baqueira", "Costa Blanca"):
+   a. Primero usa BuscarCampanaPorNombreInput(nombre_campana="Baqueira")
+   b. Extrae el id_campana del resultado
+   c. Luego usa ObtenerRecomendacionesInput(campana_id=ID_OBTENIDO)
+
+2. **Si mencionan un ID directo**:
+   → ObtenerRecomendacionesInput(campana_id=X)
+
+3. **Si piden recomendaciones de TODAS**:
+   → ObtenerRecomendacionesInput(campana_id="None")
+
+4. **Si piden análisis específico**:
+   → AnalizarOpportunidadInput
 
 🔑 REGLAS CRÍTICAS:
-- SIEMPRE pregunta por el ID de campaña si no lo mencionan
+- Si mencionan "Baqueira", "Ibiza", "Costa Blanca", etc. → SIEMPRE busca primero con BuscarCampanaPorNombreInput
+- NUNCA pidas el ID al usuario si mencionó un nombre de destino/campaña
+- Si la búsqueda no encuentra nada, informa al usuario amablemente
 - Presenta recomendaciones ordenadas por prioridad: high → medium → low
 - Explica el IMPACTO potencial (ej: "9.7% reducción en CPA")
 - Incluye ACCIONES concretas ("Activar Advantage+ en adset X")
@@ -75,6 +93,11 @@ Para cada recomendación:
 2. 📈 Impacto esperado
 3. 🔧 Acción concreta
 4. ⚡ Prioridad
+
+🗺️ DESTINOS COMUNES:
+- **Montaña**: Baqueira, Andorra, Pirineos
+- **Islas**: Ibiza, Mallorca, Menorca, Canarias
+- **Costas**: Cantabria, Costa de la Luz, Costa Blanca, Costa del Sol
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -106,6 +129,7 @@ def call_recommendation_llm(state: RecommendationAgentState):
 def execute_recommendation_tools(state: RecommendationAgentState):
     """Ejecuta herramientas de recomendaciones"""
     tool_map = {
+        "BuscarCampanaPorNombreInput": (buscar_campana_por_nombre_func, BuscarCampanaPorNombreInput),
         "ObtenerRecomendacionesInput": (obtener_recomendaciones_func, ObtenerRecomendacionesInput),
         "AnalizarOpportunidadInput": (analizar_oportunidad_func, AnalizarOpportunidadInput),
     }
@@ -136,7 +160,14 @@ def execute_recommendation_tools(state: RecommendationAgentState):
             tool_input = tool_input_class(**tool_args)
             result = tool_func(tool_input)
             
-            content = result.datos_json if hasattr(result, 'datos_json') else str(result)
+            # ✅ Manejo específico para BuscarCampanaPorNombreInput
+            if tool_name == "BuscarCampanaPorNombreInput":
+                content = json.dumps({
+                    "id_campana": result.id_campana,
+                    "nombre_encontrado": result.nombre_encontrado
+                })
+            else:
+                content = result.datos_json if hasattr(result, 'datos_json') else str(result)
             
             results.append(ToolMessage(content=content, tool_call_id=tool_id))
         
