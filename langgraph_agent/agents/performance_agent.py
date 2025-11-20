@@ -13,6 +13,13 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
+import json
+
+from ..tools.config.config_tools import (
+    BuscarCampanaPorNombreInput,
+    buscar_campana_por_nombre_func
+)
+
 from ..tools.performance.performance_tools import (
     ObtenerMetricasCampanaInput,
     ObtenerAnunciosPorRendimientoInput,
@@ -43,6 +50,10 @@ class PerformanceAgentState(TypedDict):
 # ========== HERRAMIENTAS ==========
 
 PERFORMANCE_TOOLS = [
+
+    # Búsqueda
+    BuscarCampanaPorNombreInput,
+
     # Existentes
     ObtenerMetricasCampanaInput,
     ObtenerAnunciosPorRendimientoInput,
@@ -84,15 +95,20 @@ Responder SOLO preguntas sobre:
 
 📋 FLUJO DE TRABAJO:
 
+0. **Si mencionan un NOMBRE de campaña/destino** (ej: "Baqueira", "Costa Blanca"):
+   a. Primero usa BuscarCampanaPorNombreInput(nombre_campana="Baqueira")
+   b. Extrae el id_campana del resultado
+   c. Continúa con la herramienta apropiada usando ese ID
+
 1. **Métricas de UNA campaña**:
-   - "gasto de Baqueira" → ObtenerMetricasCampanaInput
+   - "gasto de Baqueira" → Buscar + ObtenerMetricasCampanaInput
 
 2. **TOP anuncios**:
-   - "TOP 3 anuncios de Costa Blanca" → ObtenerAnunciosPorRendimientoInput
+   - "TOP 3 anuncios de Costa Blanca" → Buscar + ObtenerAnunciosPorRendimientoInput(limite=3)
 
 3. **Comparar períodos**:
    - "compara esta semana con la anterior" → CompararPeriodosInput
-   - "Baqueira la semana pasada vs resto del mes" → CompararPeriodosInput
+   - "Baqueira la semana pasada vs resto del mes" → Buscar + CompararPeriodosInput
 
 4. **Métricas globales**:
    - "CPA global de las campañas" → ObtenerCPAGlobalInput
@@ -103,7 +119,7 @@ Responder SOLO preguntas sobre:
    - "¿cuánto se gastó en Costa Blanca en septiembre?" → ObtenerMetricasPorDestinoInput(destino="Costa Blanca", date_start="2025-09-01", date_end="2025-09-30")
 
 6. 🆕 **Métricas de ADSETS**:
-   - "dame los adsets de Baqueira" → ObtenerMetricasAdsetInput
+   - "dame los adsets de Baqueira" → Buscar + ObtenerMetricasAdsetInput
 
 7. 🆕 **Comparar DESTINOS**:
    - "compara Baqueira vs Ibiza" → CompararDestinosInput(destinos=["Baqueira", "Ibiza"])
@@ -115,46 +131,28 @@ Responder SOLO preguntas sobre:
 - **General**: Campañas sin destino específico
 
 🔑 REGLAS CRÍTICAS:
-- SIEMPRE pregunta por el ID de campaña si no lo mencionan (o usa búsqueda)
+- Si mencionan un NOMBRE (Baqueira, Ibiza, etc.) → SIEMPRE busca primero con BuscarCampanaPorNombreInput
+- NUNCA pidas el ID al usuario si mencionó un nombre
+- Si la búsqueda retorna id_campana="None", informa que no se encontró esa campaña
 - Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
 - Para periodos, detecta los 2 períodos mencionados
 - Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
 - Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
 - NUNCA inventes métricas
 
-📅 PERÍODOS VÁLIDOS DE META ADS API:
-
-**IMPORTANTE**: Traduce SIEMPRE las expresiones humanas a estos presets válidos:
-
-| Usuario dice | Usa en API |
-|--------------|------------|
-| "última semana" / "semana pasada" | `last_7d` |
-| "últimos 7 días" | `last_7d` |
-| "últimos 14 días" | `last_14d` |
-| "últimos 28 días" / "último mes" | `last_28d` |
-| "este mes" / "mes actual" | `this_month` |
-| "mes pasado" | `last_month` |
-| "hoy" | `today` |
-| "ayer" | `yesterday` |
-| Fechas específicas | Usa `date_start` y `date_end` en formato YYYY-MM-DD |
-
-⚠️ **NO USES ESTOS** (no existen en Meta API):
-- ❌ `last_week`
-- ❌ `this_week`
-- ❌ `previous_7d`
+📅 PERÍODOS VÁLIDOS:
+- "última semana" / "últimos 7 días" → last_7d
+- "último mes" / "mes pasado" → last_month
+- "este mes" → this_month
+- "esta semana" → this_week
+- "semana pasada" → last_week
+- Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
 
 🆕 COMPARACIONES:
-Cuando el usuario pida "esta semana vs la anterior":
-- Periodo 1: Usa fechas custom (lunes de esta semana hasta hoy)
-- Periodo 2: Usa fechas custom (lunes-domingo de semana pasada)
-
-**Ejemplo de conversión**:
-Usuario: "¿qué destinos funcionaron mejor la semana pasada?"
-→ Usa: `date_preset="last_7d"` (NO uses "last_week")
-
-Usuario: "compara esta semana con la anterior"
-→ Usa: `periodo_1="custom"` con fechas calculadas
-→ Usa: `periodo_2="custom"` con fechas de semana anterior
+- "última semana vs resto del mes" → periodo_1: last_7d, periodo_2: custom (calcular fechas)
+- "esta semana vs la anterior" → periodo_1: this_week, periodo_2: last_week
+- "mes actual vs mes pasado" → periodo_1: this_month, periodo_2: last_month
+- "Baqueira semana pasada vs resto del mes" → CompararPeriodosInput con fechas custom
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -186,18 +184,21 @@ def call_performance_llm(state: PerformanceAgentState):
 def execute_performance_tools(state: PerformanceAgentState):
     """Ejecuta herramientas de rendimiento"""
     tool_map = {
-    # Existentes
-    "ObtenerMetricasCampanaInput": (obtener_metricas_campana_func, ObtenerMetricasCampanaInput),
-    "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
-    "CompararPeriodosInput": (comparar_periodos_func, CompararPeriodosInput),
-    "ObtenerMetricasGlobalesInput": (obtener_metricas_globales_func, ObtenerMetricasGlobalesInput),
-    
-    # 🆕 Nuevas
-    "ObtenerMetricasPorDestinoInput": (obtener_metricas_por_destino_func, ObtenerMetricasPorDestinoInput),
-    "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
-    "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
-    "CompararDestinosInput": (comparar_destinos_func, CompararDestinosInput),
-}
+        # Búsqueda
+        "BuscarCampanaPorNombreInput": (buscar_campana_por_nombre_func, BuscarCampanaPorNombreInput),
+        
+        # Existentes
+        "ObtenerMetricasCampanaInput": (obtener_metricas_campana_func, ObtenerMetricasCampanaInput),
+        "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
+        "CompararPeriodosInput": (comparar_periodos_func, CompararPeriodosInput),
+        "ObtenerMetricasGlobalesInput": (obtener_metricas_globales_func, ObtenerMetricasGlobalesInput),
+        
+        # 🆕 Nuevas
+        "ObtenerMetricasPorDestinoInput": (obtener_metricas_por_destino_func, ObtenerMetricasPorDestinoInput),
+        "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
+        "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
+        "CompararDestinosInput": (comparar_destinos_func, CompararDestinosInput),
+    }
     
     last_message = state["messages"][-1]
     results = []
@@ -225,8 +226,15 @@ def execute_performance_tools(state: PerformanceAgentState):
             tool_input = tool_input_class(**tool_args)
             result = tool_func(tool_input)
             
-            # Extraer contenido
-            content = result.datos_json if hasattr(result, 'datos_json') else str(result)
+            # ✅ Manejo específico para BuscarCampanaPorNombreInput
+            if tool_name == "BuscarCampanaPorNombreInput":
+                content = json.dumps({
+                    "id_campana": result.id_campana,
+                    "nombre_encontrado": result.nombre_encontrado
+                })
+            else:
+                # Extraer contenido
+                content = result.datos_json if hasattr(result, 'datos_json') else str(result)
             
             results.append(ToolMessage(content=content, tool_call_id=tool_id))
         
