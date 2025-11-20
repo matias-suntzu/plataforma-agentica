@@ -37,6 +37,10 @@ from ..tools.performance.performance_tools import (
     obtener_cpa_global_func,
     obtener_metricas_adset_func,
     comparar_destinos_func,
+    ObtenerMetricasAnuncioInput,
+    CompararAnunciosInput,
+    obtener_metricas_anuncio_func,
+    comparar_anuncios_func,
 )
 
 
@@ -65,6 +69,9 @@ PERFORMANCE_TOOLS = [
     ObtenerCPAGlobalInput,
     ObtenerMetricasAdsetInput,
     CompararDestinosInput,
+
+    ObtenerMetricasAnuncioInput,
+    CompararAnunciosInput,
 ]
 
 
@@ -82,11 +89,13 @@ Responder SOLO preguntas sobre:
 - Ratio de conversiones
 - Valor de conversión vs coste
 - TOP N anuncios por rendimiento
-- 🆕 Métricas por DESTINO (Baqueira, Ibiza, Costa Blanca, etc.)
-- 🆕 CPA global de todas las campañas
-- 🆕 Métricas a nivel de ADSET
-- 🆕 Comparaciones entre períodos
-- 🆕 Comparaciones entre destinos
+- 🆕 MÉTRICAS DE ANUNCIOS INDIVIDUALES
+- 🆕 COMPARACIÓN DE ANUNCIOS (identificar cuál empeoró)
+- Métricas por DESTINO (Baqueira, Ibiza, Costa Blanca, etc.)
+- CPA global de todas las campañas
+- Métricas a nivel de ADSET
+- Comparaciones entre períodos
+- Comparaciones entre destinos
 
 ❌ NO RESPONDES SOBRE:
 - Configuración técnica (presupuestos configurados, estrategias de puja, targeting)
@@ -106,22 +115,31 @@ Responder SOLO preguntas sobre:
 2. **TOP anuncios**:
    - "TOP 3 anuncios de Costa Blanca" → Buscar + ObtenerAnunciosPorRendimientoInput(limite=3)
 
-3. **Comparar períodos**:
+3. **🆕 Métricas de UN ANUNCIO ESPECÍFICO**:
+   - "¿Cómo está el anuncio X?" → ObtenerMetricasAnuncioInput(anuncio_id="...")
+   - "Dame métricas del anuncio fbads_es_awareness_31.07.25_intereses_vid10_costaluz" → ObtenerMetricasAnuncioInput
+
+4. **🆕 IDENTIFICAR ANUNCIOS QUE EMPEORARON**:
+   - "¿Qué anuncio ha empeorado?" → CompararAnunciosInput(campana_id="...", periodo_actual="last_7d", periodo_anterior="previous_7d")
+   - "¿Cuál anuncio explica el aumento del CPA?" → CompararAnunciosInput
+   - **IMPORTANTE**: Esta herramienta compara automáticamente períodos y retorna qué anuncios empeoraron
+
+5. **Comparar períodos**:
    - "compara esta semana con la anterior" → CompararPeriodosInput
    - "Baqueira la semana pasada vs resto del mes" → Buscar + CompararPeriodosInput
 
-4. **Métricas globales**:
+6. **Métricas globales**:
    - "CPA global de las campañas" → ObtenerCPAGlobalInput
    - "métricas de todas las campañas" → ObtenerMetricasGlobalesInput
 
-5. 🆕 **Métricas por DESTINO**:
+7. **Métricas por DESTINO**:
    - "¿qué destinos funcionaron mejor?" → ObtenerMetricasPorDestinoInput
    - "¿cuánto se gastó en Costa Blanca en septiembre?" → ObtenerMetricasPorDestinoInput(destino="Costa Blanca", date_start="2025-09-01", date_end="2025-09-30")
 
-6. 🆕 **Métricas de ADSETS**:
+8. **Métricas de ADSETS**:
    - "dame los adsets de Baqueira" → Buscar + ObtenerMetricasAdsetInput
 
-7. 🆕 **Comparar DESTINOS**:
+9. **Comparar DESTINOS**:
    - "compara Baqueira vs Ibiza" → CompararDestinosInput(destinos=["Baqueira", "Ibiza"])
 
 🗺️ DESTINOS DISPONIBLES:
@@ -139,6 +157,7 @@ Responder SOLO preguntas sobre:
 - Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
 - Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
 - NUNCA inventes métricas
+- 🆕 **Para queries sobre "qué anuncio empeoró"**: Usa CompararAnunciosInput automáticamente
 
 📅 PERÍODOS VÁLIDOS:
 - "última semana" / "últimos 7 días" → last_7d
@@ -148,11 +167,11 @@ Responder SOLO preguntas sobre:
 - "semana pasada" → last_week
 - Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
 
-🆕 COMPARACIONES:
+🆕 COMPARACIONES DE ANUNCIOS:
 - "última semana vs resto del mes" → periodo_1: last_7d, periodo_2: custom (calcular fechas)
 - "esta semana vs la anterior" → periodo_1: this_week, periodo_2: last_week
 - "mes actual vs mes pasado" → periodo_1: this_month, periodo_2: last_month
-- "Baqueira semana pasada vs resto del mes" → CompararPeriodosInput con fechas custom
+- "¿qué anuncio empeoró?" → CompararAnunciosInput con períodos automáticos
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -198,6 +217,9 @@ def execute_performance_tools(state: PerformanceAgentState):
         "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
         "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
         "CompararDestinosInput": (comparar_destinos_func, CompararDestinosInput),
+
+        "ObtenerMetricasAnuncioInput": (obtener_metricas_anuncio_func, ObtenerMetricasAnuncioInput),
+        "CompararAnunciosInput": (comparar_anuncios_func, CompararAnunciosInput),
     }
     
     last_message = state["messages"][-1]

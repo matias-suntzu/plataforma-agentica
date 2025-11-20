@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from facebook_business.adobjects.campaign import Campaign
 from facebook_business.adobjects.adaccount import AdAccount
 from facebook_business.adobjects.adsinsights import AdsInsights
+from facebook_business.adobjects.ad import Ad
 
 from ...models.schemas import BaseModel, Field
 from ...utils.meta_api import get_account
@@ -125,6 +126,30 @@ class CompararDestinosInput(BaseModel):
 
 class CompararDestinosOutput(BaseModel):
     """Salida con comparación de destinos"""
+    datos_json: str
+
+class ObtenerMetricasAnuncioInput(BaseModel):
+    """Obtiene métricas de rendimiento de UN anuncio específico"""
+    anuncio_id: str = Field(description="ID del anuncio")
+    date_preset: str = Field(default="last_7d", description="Período: last_7d, last_month, etc.")
+    date_start: str = Field(default=None, description="Fecha inicio personalizada (YYYY-MM-DD)")
+    date_end: str = Field(default=None, description="Fecha fin personalizada (YYYY-MM-DD)")
+
+
+class ObtenerMetricasAnuncioOutput(BaseModel):
+    """Salida con métricas del anuncio"""
+    datos_json: str
+
+class CompararAnunciosInput(BaseModel):
+    """Compara rendimiento de anuncios de una campaña"""
+    campana_id: str = Field(description="ID de la campaña")
+    periodo_actual: str = Field(default="last_7d", description="Período actual")
+    periodo_anterior: str = Field(default="previous_7d", description="Período anterior")
+    metrica_ordenar: str = Field(default="cpa", description="Métrica para ordenar: cpa, cpc, ctr, conversiones")
+
+
+class CompararAnunciosOutput(BaseModel):
+    """Salida con comparación de anuncios"""
     datos_json: str
 
 # ========== MAPEO DE DATE PRESETS ==========
@@ -964,3 +989,280 @@ def comparar_destinos_func(
     except Exception as e:
         logger.error(f"❌ Error comparando destinos: {e}")
         return CompararDestinosOutput(datos_json=json.dumps({"error": str(e)}))
+
+def obtener_metricas_anuncio_func(input: ObtenerMetricasAnuncioInput) -> ObtenerMetricasAnuncioOutput:
+    """
+    Obtiene métricas de rendimiento de UN anuncio específico.
+    
+    Responde queries como:
+    - "¿Cómo está el anuncio X?"
+    - "Dame métricas del anuncio Y"
+    - "¿Qué anuncio ha empeorado?"
+    
+    Métricas incluidas:
+    - Gasto, impresiones, clicks, CTR
+    - CPM, CPC, CPA
+    - Conversiones (por tipo)
+    - Estado del anuncio
+    
+    Returns:
+        Métricas completas del anuncio específico
+    """
+    try:
+        from facebook_business.adobjects.ad import Ad
+        
+        ad = Ad(input.anuncio_id)
+        
+        # Normalizar date_preset
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+        
+        # Configurar período
+        use_custom = bool(input.date_start and input.date_end)
+        params = {'level': 'ad'}
+        
+        if use_custom:
+            params['time_range'] = {'since': input.date_start, 'until': input.date_end}
+            periodo_str = f"{input.date_start} a {input.date_end}"
+        else:
+            params['date_preset'] = date_preset_normalized
+            periodo_str = date_preset_normalized
+        
+        # Campos de insights
+        fields = [
+            AdsInsights.Field.ad_id,
+            AdsInsights.Field.ad_name,
+            AdsInsights.Field.adset_id,
+            AdsInsights.Field.adset_name,
+            AdsInsights.Field.campaign_id,
+            AdsInsights.Field.campaign_name,
+            AdsInsights.Field.spend,
+            AdsInsights.Field.impressions,
+            AdsInsights.Field.clicks,
+            AdsInsights.Field.ctr,
+            AdsInsights.Field.cpm,
+            AdsInsights.Field.cpc,
+            AdsInsights.Field.actions,
+            AdsInsights.Field.conversions,
+        ]
+        
+        insights = ad.get_insights(fields=fields, params=params)
+        
+        if not insights:
+            # Si no hay insights, obtener info básica del anuncio
+            ad_info = ad.api_get(fields=['id', 'name', 'status', 'adset_id', 'campaign_id'])
+            return ObtenerMetricasAnuncioOutput(
+                datos_json=json.dumps({
+                    "ad_id": input.anuncio_id,
+                    "ad_name": ad_info.get('name', 'Sin nombre'),
+                    "status": ad_info.get('status', 'UNKNOWN'),
+                    "adset_id": ad_info.get('adset_id'),
+                    "campaign_id": ad_info.get('campaign_id'),
+                    "periodo": periodo_str,
+                    "error": f"No hay datos para este anuncio en {periodo_str}"
+                }, ensure_ascii=False)
+            )
+        
+        # Procesar métricas
+        insight = insights[0]  # Solo hay 1 insight para 1 anuncio
+        
+        spend = float(insight.get('spend', 0))
+        impressions = int(insight.get('impressions', 0))
+        clicks = int(insight.get('clicks', 0))
+        
+        # Procesar conversiones
+        conversiones_por_tipo = {}
+        total_conversiones = 0
+        for action in insight.get('actions', []):
+            action_type = action.get('action_type')
+            value = int(action.get('value', 0))
+            conversiones_por_tipo[action_type] = value
+            if action_type in ['purchase', 'lead', 'complete_registration']:
+                total_conversiones += value
+        
+        # Calcular métricas derivadas
+        ctr = (clicks / impressions * 100) if impressions > 0 else 0
+        cpm = (spend / impressions * 1000) if impressions > 0 else 0
+        cpc = (spend / clicks) if clicks > 0 else 0
+        cpa = (spend / total_conversiones) if total_conversiones > 0 else 0
+        
+        output = {
+            "ad_id": input.anuncio_id,
+            "ad_name": insight.get('ad_name', 'Sin nombre'),
+            "adset_id": insight.get('adset_id'),
+            "adset_name": insight.get('adset_name'),
+            "campaign_id": insight.get('campaign_id'),
+            "campaign_name": insight.get('campaign_name'),
+            "periodo": periodo_str,
+            "metricas": {
+                "gasto_eur": round(spend, 2),
+                "impresiones": impressions,
+                "clicks": clicks,
+                "ctr_porcentaje": round(ctr, 2),
+                "cpm_eur": round(cpm, 2),
+                "cpc_eur": round(cpc, 2),
+                "conversiones_total": total_conversiones,
+                "conversiones_por_tipo": conversiones_por_tipo,
+                "cpa_eur": round(cpa, 2) if total_conversiones > 0 else None
+            }
+        }
+        
+        logger.info(f"✅ Métricas del anuncio {input.anuncio_id}: {spend}€, {total_conversiones} conversiones")
+        return ObtenerMetricasAnuncioOutput(datos_json=json.dumps(output, ensure_ascii=False))
+    
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo métricas del anuncio: {e}")
+        return ObtenerMetricasAnuncioOutput(datos_json=json.dumps({"error": str(e)}))
+    
+    
+def comparar_anuncios_func(input: CompararAnunciosInput) -> CompararAnunciosOutput:
+    """
+    Compara rendimiento de anuncios de una campaña entre 2 períodos.
+    
+    Responde queries como:
+    - "¿Qué anuncio ha empeorado?"
+    - "¿Cuál anuncio explica el aumento del CPA?"
+    - "Compara los anuncios de esta semana vs la anterior"
+    
+    Returns:
+        Comparación de anuncios con deltas calculados
+    """
+    try:
+        from facebook_business.adobjects.campaign import Campaign
+        
+        campaign = Campaign(input.campana_id)
+        
+        # Función auxiliar para obtener métricas de anuncios en un período
+        def obtener_anuncios_periodo(date_preset):
+            params = {
+                'date_preset': normalize_date_preset(date_preset),
+                'level': 'ad'
+            }
+            
+            fields = [
+                AdsInsights.Field.ad_id,
+                AdsInsights.Field.ad_name,
+                AdsInsights.Field.spend,
+                AdsInsights.Field.impressions,
+                AdsInsights.Field.clicks,
+                AdsInsights.Field.ctr,
+                AdsInsights.Field.cpm,
+                AdsInsights.Field.cpc,
+                AdsInsights.Field.actions,
+            ]
+            
+            insights = campaign.get_insights(fields=fields, params=params)
+            
+            anuncios = {}
+            for insight in insights:
+                ad_id = insight.get('ad_id')
+                spend = float(insight.get('spend', 0))
+                clicks = int(insight.get('clicks', 0))
+                impressions = int(insight.get('impressions', 0))
+                
+                # Calcular conversiones
+                conversiones = 0
+                for action in insight.get('actions', []):
+                    if action.get('action_type') in ['purchase', 'lead', 'complete_registration']:
+                        conversiones += int(action.get('value', 0))
+                
+                ctr = (clicks / impressions * 100) if impressions > 0 else 0
+                cpm = (spend / impressions * 1000) if impressions > 0 else 0
+                cpc = (spend / clicks) if clicks > 0 else 0
+                cpa = (spend / conversiones) if conversiones > 0 else 0
+                
+                anuncios[ad_id] = {
+                    "ad_id": ad_id,
+                    "ad_name": insight.get('ad_name'),
+                    "spend": round(spend, 2),
+                    "impressions": impressions,
+                    "clicks": clicks,
+                    "conversiones": conversiones,
+                    "ctr": round(ctr, 2),
+                    "cpm": round(cpm, 2),
+                    "cpc": round(cpc, 2),
+                    "cpa": round(cpa, 2) if conversiones > 0 else None
+                }
+            
+            return anuncios
+        
+        # Obtener anuncios de ambos períodos
+        anuncios_actual = obtener_anuncios_periodo(input.periodo_actual)
+        anuncios_anterior = obtener_anuncios_periodo(input.periodo_anterior)
+        
+        # Comparar anuncios
+        comparacion = []
+        for ad_id, datos_actual in anuncios_actual.items():
+            if ad_id not in anuncios_anterior:
+                # Anuncio nuevo
+                comparacion.append({
+                    **datos_actual,
+                    "status": "NUEVO",
+                    "delta_cpa": None,
+                    "delta_conversiones": None
+                })
+                continue
+            
+            datos_anterior = anuncios_anterior[ad_id]
+            
+            # Calcular deltas
+            delta_cpa = None
+            if datos_actual['cpa'] and datos_anterior['cpa']:
+                delta_cpa = ((datos_actual['cpa'] - datos_anterior['cpa']) / datos_anterior['cpa']) * 100
+            
+            delta_conversiones = None
+            if datos_anterior['conversiones'] > 0:
+                delta_conversiones = ((datos_actual['conversiones'] - datos_anterior['conversiones']) / datos_anterior['conversiones']) * 100
+            
+            comparacion.append({
+                **datos_actual,
+                "status": "ACTIVO",
+                "periodo_anterior": {
+                    "cpa": datos_anterior['cpa'],
+                    "conversiones": datos_anterior['conversiones']
+                },
+                "delta_cpa_porcentaje": round(delta_cpa, 2) if delta_cpa else None,
+                "delta_conversiones_porcentaje": round(delta_conversiones, 2) if delta_conversiones else None
+            })
+        
+        # Ordenar según métrica
+        metrica_map = {
+            "cpa": lambda x: x.get('cpa') or float('inf'),
+            "cpc": lambda x: x.get('cpc') or float('inf'),
+            "ctr": lambda x: x.get('ctr', 0),
+            "conversiones": lambda x: x.get('conversiones', 0)
+        }
+        
+        key_func = metrica_map.get(input.metrica_ordenar, metrica_map["cpa"])
+        
+        # Para CPA/CPC: mayor = peor (orden descendente)
+        # Para CTR/conversiones: menor = peor (orden ascendente)
+        reverse = input.metrica_ordenar in ["cpa", "cpc"]
+        comparacion.sort(key=key_func, reverse=reverse)
+        
+        # Identificar peores anuncios
+        peores_anuncios = []
+        for ad in comparacion[:3]:  # TOP 3 peores
+            if ad.get('delta_cpa_porcentaje') and ad['delta_cpa_porcentaje'] > 10:
+                peores_anuncios.append({
+                    "ad_name": ad['ad_name'],
+                    "ad_id": ad['ad_id'],
+                    "cpa_actual": ad['cpa'],
+                    "cpa_anterior": ad['periodo_anterior']['cpa'],
+                    "empeoro_porcentaje": ad['delta_cpa_porcentaje']
+                })
+        
+        output = {
+            "campaign_id": input.campana_id,
+            "periodo_actual": input.periodo_actual,
+            "periodo_anterior": input.periodo_anterior,
+            "total_anuncios": len(comparacion),
+            "anuncios_empeorados": peores_anuncios,
+            "comparacion_completa": comparacion
+        }
+        
+        logger.info(f"✅ Comparación de {len(comparacion)} anuncios completada")
+        return CompararAnunciosOutput(datos_json=json.dumps(output, ensure_ascii=False))
+    
+    except Exception as e:
+        logger.error(f"❌ Error comparando anuncios: {e}")
+        return CompararAnunciosOutput(datos_json=json.dumps({"error": str(e)}))
