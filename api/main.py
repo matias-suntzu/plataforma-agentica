@@ -1,6 +1,7 @@
 """
 API FastAPI con Memoria + Sistema de Feedback + Recommendations (V5)
 ✅ Orchestrator V5 (4 agentes)
+✅ Contexto conversacional ✅
 ✅ Endpoints para guardar/listar feedback
 ✅ Vinculación con thread_id
 """
@@ -16,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,6 +38,9 @@ orchestrator_v5 = None
 
 # 🆕 ALMACENAMIENTO EN MEMORIA PARA FEEDBACK
 FEEDBACK_STORAGE: List[Dict[str, Any]] = []
+
+# 🆕 ALMACENAMIENTO DE HISTORIAL DE MENSAJES POR THREAD
+THREAD_MESSAGES: Dict[str, List[BaseMessage]] = {}
 
 
 # ============================================
@@ -81,6 +86,32 @@ class UpdateFeedbackRequest(BaseModel):
 
 
 # ============================================
+# FUNCIONES AUXILIARES PARA CONTEXTO
+# ============================================
+
+def get_thread_messages(thread_id: str) -> List[BaseMessage]:
+    """Obtiene el historial de mensajes de un thread"""
+    return THREAD_MESSAGES.get(thread_id, [])
+
+
+def add_message_to_thread(thread_id: str, message: BaseMessage):
+    """Agrega un mensaje al historial del thread"""
+    if thread_id not in THREAD_MESSAGES:
+        THREAD_MESSAGES[thread_id] = []
+    THREAD_MESSAGES[thread_id].append(message)
+    
+    # Mantener solo últimos 20 mensajes para no saturar memoria
+    if len(THREAD_MESSAGES[thread_id]) > 20:
+        THREAD_MESSAGES[thread_id] = THREAD_MESSAGES[thread_id][-20:]
+
+
+def clear_thread_messages(thread_id: str):
+    """Limpia el historial de un thread"""
+    if thread_id in THREAD_MESSAGES:
+        del THREAD_MESSAGES[thread_id]
+
+
+# ============================================
 # INICIALIZACIÓN ASÍNCRONA
 # ============================================
 async def initialize_agent_background():
@@ -89,12 +120,10 @@ async def initialize_agent_background():
     logger.info("⏳ Iniciando carga asíncrona del agente V5...")
     
     try:
-        # 🆕 CAMBIO: Importar Orchestrator V5
         from langgraph_agent.orchestration.orchestrator_v5 import OrchestratorV5
         
         logger.info("📦 Módulos importados")
         
-        # 🆕 CAMBIO: Inicializar Orchestrator V5 (con 4 agentes)
         orchestrator_v5 = OrchestratorV5(enable_logging=True)
         
         AGENT_READY = True
@@ -104,18 +133,17 @@ async def initialize_agent_background():
         logger.info("   - PerformanceAgent ✅")
         logger.info("   - RecommendationAgent ✅")
         logger.info("   - Multi-Agent ✅")
+        logger.info("   - Contexto conversacional ✅")
         
     except Exception as e:
         logger.error(f"❌ Error crítico al inicializar agente: {e}")
         import traceback
         traceback.print_exc()
-        # No marcamos AGENT_READY como True, pero el servidor sigue arriba
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Servidor FastAPI iniciando...")
-    # Iniciar carga del agente en background
     asyncio.create_task(initialize_agent_background())
     yield
     logger.info("🛑 Servidor cerrando...")
@@ -126,15 +154,14 @@ async def lifespan(app: FastAPI):
 # ============================================
 api = FastAPI(
     title="Meta Ads Agent API V5",
-    description="Agente LangGraph con 4 agentes especializados + Sistema de Feedback",
-    version="5.0-recommendations",
+    description="Agente LangGraph con 4 agentes especializados + Contexto Conversacional + Sistema de Feedback",
+    version="5.1-context",
     lifespan=lifespan
 )
 
-# ✅ CORS ARREGLADO
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica tus dominios
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,7 +169,7 @@ api.add_middleware(
 
 
 # ============================================
-# ENDPOINTS ORIGINALES
+# ENDPOINTS PRINCIPALES
 # ============================================
 @api.get("/health")
 def health_check():
@@ -153,19 +180,17 @@ def health_check():
         "orchestrator_v5": orchestrator_v5 is not None,
         "google_api": bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")),
         "meta_api": bool(os.getenv("META_ACCESS_TOKEN")),
+        "context_enabled": True,  # ✅ Nuevo
     }
     
-    # 🆕 Contar agentes disponibles
-    agents_available = 0
-    if orchestrator_v5 is not None:
-        agents_available = 4  # Config, Performance, Recommendation, Multi-Agent
+    agents_available = 4 if AGENT_READY else 0
     
     status = "healthy" if True else "unhealthy"
     
     return {
         "status": status,
         "checks": checks,
-        "version": "5.0-recommendations",
+        "version": "5.1-context",
         "agents_available": agents_available,
         "agent_types": [
             "ConfigAgent",
@@ -173,14 +198,20 @@ def health_check():
             "RecommendationAgent",
             "Multi-Agent"
         ] if AGENT_READY else [],
+        "features": [
+            "Conversational Context",  # ✅ Nuevo
+            "Thread Memory",
+            "Feedback System"
+        ],
+        "active_threads": len(THREAD_MESSAGES),  # ✅ Nuevo
         "feedback_count": len(FEEDBACK_STORAGE),
-        "message": "Servidor operativo" if AGENT_READY else "Agente inicializando..."
+        "message": "Servidor operativo con contexto conversacional" if AGENT_READY else "Agente inicializando..."
     }
 
 
 @api.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """Procesar query con el agente V5"""
+    """Procesar query con el agente V5 + contexto conversacional"""
     if not AGENT_READY or orchestrator_v5 is None:
         raise HTTPException(
             status_code=503, 
@@ -197,14 +228,26 @@ async def process_query(request: QueryRequest):
         logger.info(f"🔥 Query recibida - Thread: {thread_id}")
         logger.info(f"   Query: '{request.query[:100]}...'")
         
-        # 🆕 CAMBIO: Procesar con Orchestrator V5
+        # ✅ OBTENER HISTORIAL DE MENSAJES
+        messages = get_thread_messages(thread_id)
+        
+        if messages:
+            logger.info(f"   📚 Usando contexto: {len(messages)} mensajes previos")
+        
+        # ✅ PROCESAR CON CONTEXTO
         result = orchestrator_v5.process_query(
             query=request.query,
-            thread_id=thread_id
+            thread_id=thread_id,
+            messages=messages  # ✅ Pasar historial
         )
+        
+        # ✅ GUARDAR MENSAJES EN EL HISTORIAL
+        add_message_to_thread(thread_id, HumanMessage(content=request.query))
+        add_message_to_thread(thread_id, AIMessage(content=result.content))
         
         logger.info(f"✅ Query procesada - Thread: {thread_id}")
         logger.info(f"   Workflow: {result.workflow_type}")
+        logger.info(f"   Mensajes en thread: {len(THREAD_MESSAGES.get(thread_id, []))}")
         
         return QueryResponse(
             response=result.content,
@@ -273,14 +316,12 @@ async def list_feedback(
         if agent_id:
             filtered = [f for f in filtered if f["agent_id"] == agent_id]
         
-        # Ordenar por fecha descendente
         filtered = sorted(
             filtered,
             key=lambda x: x["created_at"],
             reverse=True
         )[:limit]
         
-        # Calcular estadísticas
         if filtered:
             ratings = [f["rating"] for f in filtered]
             avg_rating = sum(ratings) / len(ratings)
@@ -361,7 +402,6 @@ async def delete_feedback(feedback_id: str):
     logger.info(f"🗑️ Feedback {feedback_id} eliminado")
     
     return {"message": "Feedback eliminado", "id": feedback_id}
-
 
 # ============================================
 # 🆕 ENDPOINTS DE MÉTRICAS Y DEBUG
