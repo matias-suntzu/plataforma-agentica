@@ -127,6 +127,76 @@ class CompararDestinosOutput(BaseModel):
     """Salida con comparación de destinos"""
     datos_json: str
 
+# ========== MAPEO DE DATE PRESETS ==========
+
+# Mapeo de expresiones humanas a presets válidos de Meta API
+DATE_PRESET_MAP = {
+    # Expresiones comunes → Presets válidos
+    "ultima semana": "last_7d",
+    "última semana": "last_7d",
+    "semana pasada": "last_7d",
+    "ultimos 7 dias": "last_7d",
+    "últimos 7 días": "last_7d",
+    "last_week": "last_7d",  # Traducir automáticamente
+    
+    "ultimos 14 dias": "last_14d",
+    "últimos 14 días": "last_14d",
+    
+    "ultimo mes": "last_28d",
+    "último mes": "last_28d",
+    "ultimos 28 dias": "last_28d",
+    "últimos 28 días": "last_28d",
+    
+    "este mes": "this_month",
+    "mes actual": "this_month",
+    
+    "mes pasado": "last_month",
+    
+    "hoy": "today",
+    "ayer": "yesterday",
+}
+
+
+def normalize_date_preset(date_preset: str) -> str:
+    """
+    Normaliza un date_preset a un valor válido de Meta API.
+    
+    Args:
+        date_preset: Preset del usuario (puede ser inválido)
+        
+    Returns:
+        Preset válido de Meta API
+        
+    Example:
+        >>> normalize_date_preset("last_week")
+        "last_7d"
+        
+        >>> normalize_date_preset("última semana")
+        "last_7d"
+    """
+    # Si ya es válido, retornar
+    valid_presets = [
+        "today", "yesterday", "this_month", "last_month",
+        "this_quarter", "last_3d", "last_7d", "last_14d",
+        "last_28d", "last_30d", "last_90d", "last_week_mon_sun",
+        "last_week_sun_sat", "last_quarter", "last_year",
+        "this_week_mon_today", "this_week_sun_today",
+        "this_year", "maximum"
+    ]
+    
+    if date_preset in valid_presets:
+        return date_preset
+    
+    # Intentar mapear
+    normalized = DATE_PRESET_MAP.get(date_preset.lower())
+    
+    if normalized:
+        logger.info(f"📅 Normalizando date_preset: '{date_preset}' → '{normalized}'")
+        return normalized
+    
+    # Si no se encuentra, usar last_7d por defecto
+    logger.warning(f"⚠️ date_preset inválido: '{date_preset}'. Usando 'last_7d'")
+    return "last_7d"
 
 # ========== FUNCIONES ==========
 
@@ -144,6 +214,8 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
     try:
         campaign = Campaign(input.campana_id)
         
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'campaign'}
@@ -152,8 +224,8 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
             params['time_range'] = {'since': input.date_start, 'until': input.date_end}
             periodo_str = f"{input.date_start} a {input.date_end}"
         else:
-            params['date_preset'] = input.date_preset
-            periodo_str = input.date_preset
+            params['date_preset'] = date_preset_normalized
+            periodo_str = date_preset_normalized
         
         # Campos de insights
         fields = [
@@ -246,6 +318,8 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
     try:
         campaign = Campaign(input.campana_id)
         
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'ad'}
@@ -253,7 +327,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         if use_custom:
             params['time_range'] = {'since': input.date_start, 'until': input.date_end}
         else:
-            params['date_preset'] = input.date_preset
+            params['date_preset'] = date_preset_normalized
         
         # Campos de insights
         fields = [
@@ -333,38 +407,23 @@ def comparar_periodos_func(input: CompararPeriodosInput) -> CompararPeriodosOutp
         def obtener_metricas_periodo(campana_id, periodo, fecha_inicio, fecha_fin):
             params = {'level': 'campaign'}
             
+            periodo_normalized = normalize_date_preset(periodo) if periodo != 'custom' else 'custom'
+
             if periodo == 'custom' and fecha_inicio and fecha_fin:
                 params['time_range'] = {'since': fecha_inicio, 'until': fecha_fin}
-            elif periodo == 'last_7d':
-                params['date_preset'] = 'last_7d'
-            elif periodo == 'this_week':
-                # Lunes de esta semana hasta hoy
+            elif periodo_normalized == 'custom':
+                # Si el usuario dijo "this_week" o similar, calcular fechas
                 hoy = datetime.now()
-                lunes = hoy - timedelta(days=hoy.weekday())
-                params['time_range'] = {
-                    'since': lunes.strftime('%Y-%m-%d'),
-                    'until': hoy.strftime('%Y-%m-%d')
-                }
-            elif periodo == 'last_week':
-                # Semana pasada completa
-                hoy = datetime.now()
-                lunes_pasado = hoy - timedelta(days=hoy.weekday() + 7)
-                domingo_pasado = lunes_pasado + timedelta(days=6)
-                params['time_range'] = {
-                    'since': lunes_pasado.strftime('%Y-%m-%d'),
-                    'until': domingo_pasado.strftime('%Y-%m-%d')
-                }
-            elif periodo == 'previous_7d':
-                # 7 días anteriores a los últimos 7
-                hoy = datetime.now()
-                fin = hoy - timedelta(days=7)
-                inicio = fin - timedelta(days=7)
-                params['time_range'] = {
-                    'since': inicio.strftime('%Y-%m-%d'),
-                    'until': fin.strftime('%Y-%m-%d')
-                }
+                if periodo in ['this_week', 'esta semana']:
+                    lunes = hoy - timedelta(days=hoy.weekday())
+                    params['time_range'] = {
+                        'since': lunes.strftime('%Y-%m-%d'),
+                        'until': hoy.strftime('%Y-%m-%d')
+                    }
+                else:
+                    params['date_preset'] = periodo_normalized
             else:
-                params['date_preset'] = periodo
+                params['date_preset'] = periodo_normalized
             
             fields = [
                 AdsInsights.Field.spend,
@@ -496,8 +555,10 @@ def obtener_metricas_globales_func(input: ObtenerMetricasGlobalesInput) -> Obten
     try:
         account = get_account()
         
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         params = {
-            'date_preset': input.date_preset,
+            'date_preset': date_preset_normalized,
             'level': 'campaign',
             'filtering': [
                 {'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE', 'PAUSED']}
@@ -565,7 +626,7 @@ def obtener_metricas_globales_func(input: ObtenerMetricasGlobalesInput) -> Obten
         campanas_detalle.sort(key=lambda x: x['spend'], reverse=True)
         
         output = {
-            "periodo": input.date_preset,
+            "periodo": date_preset_normalized,
             "campanas_analizadas": campanas_analizadas,
             "metricas_globales": {
                 "gasto_total_eur": round(total_spend, 2),
@@ -603,6 +664,9 @@ def obtener_metricas_por_destino_func(
     try:
         account = get_account()
         
+        # 🆕 NORMALIZAR DATE_PRESET
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         # Configurar período
         params = {'level': 'adset'}  # Extraemos destino desde adsets
         
@@ -610,8 +674,8 @@ def obtener_metricas_por_destino_func(
             params['time_range'] = {'since': input.date_start, 'until': input.date_end}
             periodo_str = f"{input.date_start} a {input.date_end}"
         else:
-            params['date_preset'] = input.date_preset
-            periodo_str = input.date_preset
+            params['date_preset'] = date_preset_normalized  
+            periodo_str = date_preset_normalized
         
         fields = [
             AdsInsights.Field.adset_name,
@@ -714,9 +778,11 @@ def obtener_cpa_global_func(
     """
     try:
         account = get_account()
+
+        date_preset_normalized = normalize_date_preset(input.date_preset)
         
         params = {
-            'date_preset': input.date_preset,
+            'date_preset': date_preset_normalized,
             'level': 'account'
         }
         
@@ -751,7 +817,7 @@ def obtener_cpa_global_func(
         cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
         
         output = {
-            "period": input.date_preset,
+            "period": date_preset_normalized,
             "global_metrics": {
                 "total_spend_eur": round(total_spend, 2),
                 "total_impressions": total_impressions,
@@ -786,8 +852,10 @@ def obtener_metricas_adset_func(
     try:
         campaign = Campaign(input.campana_id)
         
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         params = {
-            'date_preset': input.date_preset,
+            'date_preset':  date_preset_normalized,
             'level': 'adset'
         }
         
@@ -839,7 +907,7 @@ def obtener_metricas_adset_func(
         
         output = {
             "campaign_id": input.campana_id,
-            "period": input.date_preset,
+            "period": date_preset_normalized,
             "total_adsets": len(adsets),
             "adsets": adsets
         }
@@ -864,8 +932,11 @@ def comparar_destinos_func(
         Comparación lado a lado con ranking
     """
     try:
+
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+
         # Obtener métricas de todos los destinos
-        metricas_input = ObtenerMetricasPorDestinoInput(date_preset=input.date_preset)
+        metricas_input = ObtenerMetricasPorDestinoInput(date_preset=date_preset_normalized)
         result = obtener_metricas_por_destino_func(metricas_input)
         
         all_destinations = json.loads(result.datos_json)['destinations']
@@ -881,7 +952,7 @@ def comparar_destinos_func(
             dest['rank'] = idx
         
         output = {
-            "period": input.date_preset,
+            "period": date_preset_normalized,
             "destinations_compared": len(filtered),
             "comparison": filtered,
             "winner": filtered[0]['destination'] if filtered else None

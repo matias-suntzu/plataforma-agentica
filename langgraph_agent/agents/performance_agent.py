@@ -122,19 +122,39 @@ Responder SOLO preguntas sobre:
 - Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
 - NUNCA inventes métricas
 
-📅 PERÍODOS VÁLIDOS:
-- "última semana" / "últimos 7 días" → last_7d
-- "este mes" → this_month
-- "mes pasado" → last_month
-- "esta semana" → this_week
-- "semana pasada" → last_week
-- Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
+📅 PERÍODOS VÁLIDOS DE META ADS API:
+
+**IMPORTANTE**: Traduce SIEMPRE las expresiones humanas a estos presets válidos:
+
+| Usuario dice | Usa en API |
+|--------------|------------|
+| "última semana" / "semana pasada" | `last_7d` |
+| "últimos 7 días" | `last_7d` |
+| "últimos 14 días" | `last_14d` |
+| "últimos 28 días" / "último mes" | `last_28d` |
+| "este mes" / "mes actual" | `this_month` |
+| "mes pasado" | `last_month` |
+| "hoy" | `today` |
+| "ayer" | `yesterday` |
+| Fechas específicas | Usa `date_start` y `date_end` en formato YYYY-MM-DD |
+
+⚠️ **NO USES ESTOS** (no existen en Meta API):
+- ❌ `last_week`
+- ❌ `this_week`
+- ❌ `previous_7d`
 
 🆕 COMPARACIONES:
-- "última semana vs resto del mes" → periodo_1: last_7d, periodo_2: custom (calcular fechas)
-- "esta semana vs la anterior" → periodo_1: this_week, periodo_2: last_week
-- "mes actual vs mes pasado" → periodo_1: this_month, periodo_2: last_month
-- "Baqueira semana pasada vs resto del mes" → CompararPeriodosInput con fechas custom
+Cuando el usuario pida "esta semana vs la anterior":
+- Periodo 1: Usa fechas custom (lunes de esta semana hasta hoy)
+- Periodo 2: Usa fechas custom (lunes-domingo de semana pasada)
+
+**Ejemplo de conversión**:
+Usuario: "¿qué destinos funcionaron mejor la semana pasada?"
+→ Usa: `date_preset="last_7d"` (NO uses "last_week")
+
+Usuario: "compara esta semana con la anterior"
+→ Usa: `periodo_1="custom"` con fechas calculadas
+→ Usa: `periodo_2="custom"` con fechas de semana anterior
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
