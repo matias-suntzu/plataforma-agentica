@@ -49,6 +49,9 @@ AGENTES DISPONIBLES:
 - Conversiones y tipos
 - TOP N anuncios
 - Comparaciones de períodos
+- 🔥 ANÁLISIS DE ANUNCIOS INDIVIDUALES
+- 🔥 COMPARACIONES DE ANUNCIOS (identificar cuál empeoró)
+- 🔥 "¿Qué anuncio explica X cambio?" → PerformanceAgent
 
 💡 **RecommendationAgent** (Recomendaciones de Optimización):
 - Sugerencias para mejorar CPA/CPC
@@ -75,14 +78,21 @@ REGLAS DE DECISIÓN:
    - "TOP 3 anuncios"
    - "compara esta semana con la anterior"
 
-3. Si menciona recomendaciones/optimización → **recommendation**
+3. 🔥 **NUEVA REGLA: Si menciona ANUNCIOS → SIEMPRE performance**
+   - "¿qué anuncio ha empeorado?" → **performance**
+   - "¿hay algún anuncio que explica el cambio en CPA?" → **performance**
+   - "dame todos los anuncios" → **performance**
+   - "¿cuál anuncio tiene peor CPA?" → **performance**
+   - "compara los anuncios" → **performance**
+
+4. Si menciona recomendaciones/optimización → **recommendation**
    - "¿cómo mejorar el CPA?"
    - "dame recomendaciones"
    - "¿qué puedo optimizar?"
    - "sugerencias para Baqueira"
    - "¿debería activar Advantage+?"
 
-4. Si menciona varios aspectos → **multi**
+5. Si menciona varios aspectos → **multi**
    - "analiza la campaña de Baqueira" (config + rendimiento + recomendaciones)
    - "¿cómo está Costa Blanca?" (varios)
    - "reporte completo con sugerencias"
@@ -90,7 +100,7 @@ REGLAS DE DECISIÓN:
 PALABRAS CLAVE:
 
 Config: presupuesto (configurado), estrategia, puja, objetivo, targeting, adset
-Performance: gasto (real), conversiones, clicks, impresiones, CTR, CPM, CPC, CPA, compara, TOP
+Performance: gasto (real), conversiones, clicks, impresiones, CTR, CPM, CPC, CPA, compara, TOP, 🔥 anuncio, anuncios
 Recommendation: recomienda, optimiza, mejora, sugerencia, debería, Advantage+, oportunidad
 
 Query del usuario: {query}

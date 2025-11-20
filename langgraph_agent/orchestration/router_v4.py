@@ -41,15 +41,15 @@ class RouteQueryV4(BaseModel):
 ROUTER_V4_PROMPT = """
 Eres un clasificador experto de consultas para un sistema de Meta Ads.
 
-**🔄 CONTEXTO CONVERSACIONAL:**
+**📄 CONTEXTO CONVERSACIONAL:**
 {conversation_context}
 
-**📝 CONSULTA ACTUAL:**
+**🔍 CONSULTA ACTUAL:**
 {query}
 
 Clasifica la consulta en UNA de estas 3 categorías:
 
-┌──────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────┐
 
 ⚡ **SIMPLE** (Fast Path - Sin agente):
    Características:
@@ -66,7 +66,7 @@ Clasifica la consulta en UNA de estas 3 categorías:
    ❌ "gasto de las campañas" → AGENTIC (métrica)
    ❌ "recomienda mejoras" → AGENTIC (recomendación)
 
-├──────────────────────────────────────────────────────────────────┤
+├────────────────────────────────────────────────────────────────┤
 
 🤖 **AGENTIC** (Con agente especializado):
    Características:
@@ -75,8 +75,11 @@ Clasifica la consulta en UNA de estas 3 categorías:
    - Métricas o configuración de UNA campaña
    - Comparaciones de períodos
    - TOP N anuncios
-   - Recomendaciones específicas de UNA campaña 🆕
-   - **CONTINUACIONES de conversaciones previas** 🔄
+   - 🆕 **ANÁLISIS DE ANUNCIOS INDIVIDUALES** 🔥
+   - 🆕 **COMPARACIONES DE ANUNCIOS** (identificar cuál empeoró) 🔥
+   - 🆕 **"¿Qué anuncio explica X?"** → SIEMPRE PerformanceAgent 🔥
+   - Recomendaciones específicas de UNA campaña
+   - **CONTINUACIONES de conversaciones previas** 📄
    
    Ejemplos:
    ✅ "¿qué presupuesto tiene Baqueira?" → ConfigAgent
@@ -84,17 +87,21 @@ Clasifica la consulta en UNA de estas 3 categorías:
    ✅ "TOP 3 de anuncios de Costa Blanca" → PerformanceAgent
    ✅ "compara esta semana con la anterior" → PerformanceAgent
    ✅ "estrategia de puja de Menorca" → ConfigAgent
-   ✅ "dame recomendaciones para Baqueira" → RecommendationAgent 🆕
-   ✅ "¿cómo mejorar el CPA de Ibiza?" → RecommendationAgent 🆕
+   ✅ "dame recomendaciones para Baqueira" → RecommendationAgent
+   ✅ "¿cómo mejorar el CPA de Ibiza?" → RecommendationAgent
+   ✅ 🔥 "¿qué anuncio ha empeorado?" → PerformanceAgent
+   ✅ 🔥 "¿qué anuncio explica el cambio en el CPA?" → PerformanceAgent
+   ✅ 🔥 "dame todos los anuncios de Baqueira" → PerformanceAgent
+   ✅ 🔥 "¿hay algún anuncio que ha empeorado?" → PerformanceAgent
    
-   **CONTINUACIONES (CRÍTICO):** 🔄
+   **CONTINUACIONES (CRÍTICO):** 📄
    Si el asistente preguntó algo en el contexto, la respuesta del usuario es AGENTIC:
    ✅ Contexto: "¿De qué campaña?" → Usuario: "campaña de baqueira" → AGENTIC
    ✅ Contexto: "¿Cuál campaña?" → Usuario: "baqueira" → AGENTIC
    ✅ Contexto: "necesito el ID" → Usuario: "de la de ibiza" → AGENTIC
    ✅ Contexto: pregunta del bot → Usuario: "todas" → AGENTIC
 
-├──────────────────────────────────────────────────────────────────┤
+├────────────────────────────────────────────────────────────────┤
 
 🔀 **MULTI_AGENT** (Requiere varios agentes):
    Características:
@@ -108,34 +115,44 @@ Clasifica la consulta en UNA de estas 3 categorías:
    ✅ "¿cómo está Costa del Sol?"
    ✅ "dame un reporte completo de Ibiza"
    ✅ "qué me puedes decir de Menorca"
-   ✅ "análisis completo con recomendaciones de Baqueira" 🆕
+   ✅ "análisis completo con recomendaciones de Baqueira"
 
-└──────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────┘
 
 🎯 REGLAS CRÍTICAS:
 
-1. **MÁXIMA PRIORIDAD - Detección de continuaciones:** 🔄
+1. **MÁXIMA PRIORIDAD - Detección de continuaciones:** 📄
    - Si hay contexto conversacional Y el asistente hizo una pregunta → la respuesta es AGENTIC
    - Indicadores: "¿de qué campaña?", "¿cuál?", "necesito", "proporciona", "especifica"
    - Si la query es ≤4 palabras Y hay contexto → probablemente AGENTIC (continuation)
-   
-2. **Prioridad de clasificación:**
-   1. Continuación de conversación → AGENTIC (detected_intent: continuation)
-   2. Solo listar SIN métricas → SIMPLE
-   3. Campaña + métricas → AGENTIC (PerformanceAgent)
-   4. Campaña + config → AGENTIC (ConfigAgent)
-   5. Campaña + recomendaciones → AGENTIC (RecommendationAgent)
-   6. "Análisis completo" → MULTI_AGENT
 
-3. **Palabras clave AGENTIC:**
+2. **🔥 NUEVA REGLA: Queries sobre ANUNCIOS → SIEMPRE AGENTIC (PerformanceAgent)**
+   - Si menciona "anuncio", "anuncios", "ad", "ads" → AGENTIC
+   - "¿qué anuncio...?" → AGENTIC (detected_intent: ad_analysis)
+   - "¿hay algún anuncio que...?" → AGENTIC (detected_intent: ad_analysis)
+   - "dame todos los anuncios" → AGENTIC (detected_intent: ad_analysis)
+   - "¿cuál anuncio explica...?" → AGENTIC (detected_intent: ad_analysis)
+   
+3. **Prioridad de clasificación:**
+   1. Queries sobre anuncios → AGENTIC (detected_intent: ad_analysis) 🔥
+   2. Continuación de conversación → AGENTIC (detected_intent: continuation)
+   3. Solo listar SIN métricas → SIMPLE
+   4. Campaña + métricas → AGENTIC (PerformanceAgent)
+   5. Campaña + config → AGENTIC (ConfigAgent)
+   6. Campaña + recomendaciones → AGENTIC (RecommendationAgent)
+   7. "Análisis completo" → MULTI_AGENT
+
+4. **Palabras clave AGENTIC:**
    - Métricas: gasto, conversiones, clicks, CTR, CPM, CPC, CPA
    - Config: presupuesto, estrategia, puja, objetivo
    - Comparaciones: "compara", "vs", "versus"
    - TOP: "TOP 3", "mejores", "peores"
    - Recomendaciones: "recomienda", "optimiza", "mejora", "sugerencia", "debería"
+   - 🔥 Anuncios: "anuncio", "anuncios", "ad", "ads", "empeorado", "explica"
 
-4. **Detected Intent:**
-   - 'continuation' → respuesta a pregunta del asistente (AGENTIC) 🔄
+5. **Detected Intent:**
+   - 'ad_analysis' → análisis de anuncios (AGENTIC/PerformanceAgent) 🔥
+   - 'continuation' → respuesta a pregunta del asistente (AGENTIC) 📄
    - 'list' → solo listar (SIMPLE)
    - 'metrics' → métricas (AGENTIC/PerformanceAgent)
    - 'config' → configuración (AGENTIC/ConfigAgent)
