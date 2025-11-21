@@ -152,6 +152,17 @@ class CompararAnunciosOutput(BaseModel):
     """Salida con comparación de anuncios"""
     datos_json: str
 
+class CompararAnunciosGlobalesInput(BaseModel):
+    """Compara anuncios de TODAS las campañas activas"""
+    periodo_actual: str = Field(default="last_7d", description="Período actual")
+    periodo_anterior: str = Field(default="previous_7d", description="Período anterior")
+    limite_campanas: int = Field(default=10, description="Máximo de campañas a analizar")
+
+
+class CompararAnunciosGlobalesOutput(BaseModel):
+    """Salida con comparación global de anuncios"""
+    datos_json: str
+
 # ========== MAPEO DE DATE PRESETS ==========
 
 # Mapeo de expresiones humanas a presets válidos de Meta API
@@ -1266,3 +1277,82 @@ def comparar_anuncios_func(input: CompararAnunciosInput) -> CompararAnunciosOutp
     except Exception as e:
         logger.error(f"❌ Error comparando anuncios: {e}")
         return CompararAnunciosOutput(datos_json=json.dumps({"error": str(e)}))
+    
+
+def comparar_anuncios_globales_func(input: CompararAnunciosGlobalesInput) -> CompararAnunciosGlobalesOutput:
+    """
+    Compara anuncios de TODAS las campañas activas.
+    
+    Responde queries como:
+    - "¿Cómo fueron todas las campañas vs la semana pasada?"
+    - "Analiza todos los anuncios de todas las campañas"
+    - "¿Qué anuncios empeoraron en general?"
+    
+    Returns:
+        Comparación global con campañas y anuncios que empeoraron
+    """
+    try:
+        account = get_account()
+        
+        # Obtener todas las campañas activas
+        campaigns = account.get_campaigns(
+            fields=['id', 'name', 'status'],
+            params={
+                'effective_status': ['ACTIVE'],
+                'limit': input.limite_campanas
+            }
+        )
+        
+        resultados_por_campana = []
+        total_anuncios_empeorados = 0
+        
+        for campaign in campaigns:
+            try:
+                # Usar la función existente para cada campaña
+                resultado = comparar_anuncios_func(
+                    CompararAnunciosInput(
+                        campana_id=campaign['id'],
+                        periodo_actual=input.periodo_actual,
+                        periodo_anterior=input.periodo_anterior
+                    )
+                )
+                
+                datos = json.loads(resultado.datos_json)
+                
+                # Solo incluir si hay anuncios que empeoraron
+                anuncios_empeorados = datos.get('anuncios_empeorados', [])
+                if anuncios_empeorados:
+                    resultados_por_campana.append({
+                        "campaign_id": campaign['id'],
+                        "campaign_name": campaign['name'],
+                        "anuncios_empeorados": anuncios_empeorados,
+                        "total_anuncios": datos.get('total_anuncios', 0)
+                    })
+                    total_anuncios_empeorados += len(anuncios_empeorados)
+            
+            except Exception as e:
+                logger.debug(f"Error analizando campaña {campaign['id']}: {e}")
+                continue
+        
+        # Ordenar por número de anuncios empeorados
+        resultados_por_campana.sort(
+            key=lambda x: len(x['anuncios_empeorados']), 
+            reverse=True
+        )
+        
+        output = {
+            "periodo_actual": input.periodo_actual,
+            "periodo_anterior": input.periodo_anterior,
+            "total_campanas_analizadas": len(campaigns),
+            "campanas_con_problemas": len(resultados_por_campana),
+            "total_anuncios_empeorados": total_anuncios_empeorados,
+            "resultados_por_campana": resultados_por_campana
+        }
+        
+        logger.info(f"✅ Análisis global: {len(resultados_por_campana)} campañas con anuncios empeorados")
+        return CompararAnunciosGlobalesOutput(datos_json=json.dumps(output, ensure_ascii=False))
+    
+    except Exception as e:
+        logger.error(f"❌ Error en comparación global: {e}")
+        return CompararAnunciosGlobalesOutput(datos_json=json.dumps({"error": str(e)}))
+

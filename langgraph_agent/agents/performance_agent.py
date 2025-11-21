@@ -41,6 +41,9 @@ from ..tools.performance.performance_tools import (
     CompararAnunciosInput,
     obtener_metricas_anuncio_func,
     comparar_anuncios_func,
+    CompararAnunciosGlobalesInput,
+    comparar_anuncios_globales_func
+
 )
 
 
@@ -72,6 +75,8 @@ PERFORMANCE_TOOLS = [
 
     ObtenerMetricasAnuncioInput,
     CompararAnunciosInput,
+
+    CompararAnunciosGlobalesInput,
 ]
 
 
@@ -149,6 +154,12 @@ Responder SOLO preguntas sobre:
 10. **Comparar DESTINOS**:
     - "compara Baqueira vs Ibiza" → CompararDestinosInput(destinos=["Baqueira", "Ibiza"])
 
+11. **DETECCIÓN DE "TODAS LAS CAMPAÑAS"**:
+   - Si el usuario dice "todas" (las campañas) → usar CompararAnunciosGlobalesInput
+   - "¿Cómo fueron todas las campañas?" → CompararAnunciosGlobalesInput
+   - "Analiza todos los anuncios" → CompararAnunciosGlobalesInput
+   - **IMPORTANTE**: NO preguntar "¿de qué campaña?" si dice "todas"
+        
 🗺️ DESTINOS DISPONIBLES:
 - **Montaña**: Baqueira, Andorra, Pirineos
 - **Islas**: Ibiza, Mallorca, Menorca, Canarias
