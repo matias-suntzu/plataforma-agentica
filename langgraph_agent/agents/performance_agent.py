@@ -43,7 +43,6 @@ from ..tools.performance.performance_tools import (
     comparar_anuncios_func,
     CompararAnunciosGlobalesInput,
     comparar_anuncios_globales_func
-
 )
 
 
@@ -57,26 +56,29 @@ class PerformanceAgentState(TypedDict):
 # ========== HERRAMIENTAS ==========
 
 PERFORMANCE_TOOLS = [
-
     # Búsqueda
     BuscarCampanaPorNombreInput,
 
-    # Existentes
+    # Métricas de campaña y globales
     ObtenerMetricasCampanaInput,
-    ObtenerAnunciosPorRendimientoInput,
-    CompararPeriodosInput,
     ObtenerMetricasGlobalesInput,
     
-    # 🆕 Nuevas
-    ObtenerMetricasPorDestinoInput,
-    ObtenerCPAGlobalInput,
-    ObtenerMetricasAdsetInput,
-    CompararDestinosInput,
-
+    # 🔥 Anuncios
+    ObtenerAnunciosPorRendimientoInput,
     ObtenerMetricasAnuncioInput,
     CompararAnunciosInput,
-
     CompararAnunciosGlobalesInput,
+    
+    # Comparaciones
+    CompararPeriodosInput,
+    
+    # Por destino
+    ObtenerMetricasPorDestinoInput,
+    CompararDestinosInput,
+    
+    # Otras
+    ObtenerCPAGlobalInput,
+    ObtenerMetricasAdsetInput,
 ]
 
 
@@ -93,10 +95,10 @@ Responder SOLO preguntas sobre:
 - Conversiones (totales y por tipo)
 - Ratio de conversiones
 - Valor de conversión vs coste
-- TOP N anuncios por rendimiento
 - 🔥 MÉTRICAS DE ANUNCIOS INDIVIDUALES
 - 🔥 COMPARACIÓN DE ANUNCIOS (identificar cuál empeoró)
 - 🔥 ANÁLISIS DE ANUNCIOS QUE EXPLICAN CAMBIOS EN MÉTRICAS
+- 🔥 RANKING/TOP N ANUNCIOS POR CUALQUIER MÉTRICA
 - Métricas por DESTINO (Baqueira, Ibiza, Costa Blanca, etc.)
 - CPA global de todas las campañas
 - Métricas a nivel de ADSET
@@ -115,51 +117,51 @@ Responder SOLO preguntas sobre:
    b. Extrae el id_campana del resultado
    c. Continúa con la herramienta apropiada usando ese ID
 
-1. **Métricas de UNA campaña**:
-   - "gasto de Baqueira" → Buscar + ObtenerMetricasCampanaInput
+🔥 **DECISIÓN CRÍTICA: ¿Qué herramienta usar para ANUNCIOS?**
 
-2. **TOP anuncios** (ranking general):
-   - "TOP 3 anuncios de Costa Blanca" → Buscar + ObtenerAnunciosPorRendimientoInput(limite=3)
-   - "mejores anuncios" → ObtenerAnunciosPorRendimientoInput(limite=5)
+A. **RANKING/TOP N (mejor/peor/TOP por métrica)** → ObtenerAnunciosPorRendimientoInput
+   Ejemplos:
+   - "¿Qué anuncio tiene el mejor CTR?" ✅
+   - "Dame el TOP 3 de anuncios" ✅
+   - "¿Cuál anuncio tiene más clicks?" ✅
+   - "TOP 5 anuncios con mejor CPA" ✅
+   - "¿Qué anuncio tiene el peor CPA?" ✅
+   
+   **Parámetros clave:**
+   - `ordenar_por`: "clicks" (default), "ctr", "cpa", "conversiones", "impressions", "cpc", "spend"
+   - `limite`: número de anuncios (default=3)
+   
+   **IMPORTANTE**: Si preguntan por "mejor/peor X", usar esta herramienta con `ordenar_por=X`
 
-3. 🔥 **IDENTIFICAR ANUNCIOS QUE EMPEORARON** (query MÁS COMÚN):
-   - "¿Qué anuncio ha empeorado?" → Buscar + CompararAnunciosInput
-   - "¿Hay algún anuncio que explique el cambio en CPA?" → Buscar + CompararAnunciosInput
-   - "¿Cuál anuncio empeoró vs la semana pasada?" → Buscar + CompararAnunciosInput
-   - **CRÍTICO**: Si preguntan "¿qué anuncio...?" → SIEMPRE usar CompararAnunciosInput
+B. **COMPARACIÓN TEMPORAL (empeoró/mejoró entre períodos)** → CompararAnunciosInput
+   Ejemplos:
+   - "¿Qué anuncio ha empeorado?" ✅
+   - "¿Qué anuncio explica el cambio en CPA?" ✅
+   - "¿Qué anuncios empeoraron vs la semana pasada?" ✅
+   - "¿Hay algún anuncio que explique el aumento del CPA?" ✅
+   
+   **IMPORTANTE**: Si preguntan por "empeoró/mejoró/cambió", usar ESTA herramienta
 
-4. 🔥 **LISTAR TODOS LOS ANUNCIOS** (sin límite):
-   - "dame todos los anuncios" → Buscar + ObtenerAnunciosPorRendimientoInput(limite=100)
-   - "muéstrame todos los anuncios de Baqueira" → Buscar + ObtenerAnunciosPorRendimientoInput(limite=100)
-   - **IMPORTANTE**: Si dicen "todos", usa limite=100 (no preguntes cuántos)
+C. **MÉTRICAS DE UN ANUNCIO ESPECÍFICO** → ObtenerMetricasAnuncioInput
+   Ejemplos:
+   - "¿Cómo está el anuncio X?" ✅
+   - "Dame métricas del anuncio fbads_es_..." ✅
+   
+D. **LISTAR TODOS LOS ANUNCIOS** → ObtenerAnunciosPorRendimientoInput(limite=100)
+   Ejemplos:
+   - "Dame todos los anuncios" ✅
+   - "Muéstrame todos los anuncios de Baqueira" ✅
+   
+   **IMPORTANTE**: Si dicen "todos", NO preguntes cuántos, usa limite=100 automáticamente
 
-5. 🔥 **Métricas de UN ANUNCIO ESPECÍFICO**:
-   - "¿Cómo está el anuncio X?" → ObtenerMetricasAnuncioInput(anuncio_id="...")
-   - "Dame métricas del anuncio fbads_es_..." → ObtenerMetricasAnuncioInput
+E. **ANÁLISIS GLOBAL DE TODAS LAS CAMPAÑAS** → CompararAnunciosGlobalesInput
+   Ejemplos:
+   - "¿Cómo fueron todas las campañas?" ✅
+   - "Analiza todos los anuncios de todas las campañas" ✅
+   - "¿Qué anuncios empeoraron en general?" ✅
+   
+   **IMPORTANTE**: Si dicen "todas (las campañas)", NO preguntes "¿de qué campaña?"
 
-6. **Comparar períodos**:
-   - "compara esta semana con la anterior" → CompararPeriodosInput
-   - "Baqueira la semana pasada vs resto del mes" → Buscar + CompararPeriodosInput
-
-7. **Métricas globales**:
-   - "CPA global de las campañas" → ObtenerCPAGlobalInput
-   - "métricas de todas las campañas" → ObtenerMetricasGlobalesInput
-
-8. **Métricas por DESTINO**:
-   - "¿qué destinos funcionaron mejor?" → ObtenerMetricasPorDestinoInput
-
-9. **Métricas de ADSETS**:
-   - "dame los adsets de Baqueira" → Buscar + ObtenerMetricasAdsetInput
-
-10. **Comparar DESTINOS**:
-    - "compara Baqueira vs Ibiza" → CompararDestinosInput(destinos=["Baqueira", "Ibiza"])
-
-11. **DETECCIÓN DE "TODAS LAS CAMPAÑAS"**:
-   - Si el usuario dice "todas" (las campañas) → usar CompararAnunciosGlobalesInput
-   - "¿Cómo fueron todas las campañas?" → CompararAnunciosGlobalesInput
-   - "Analiza todos los anuncios" → CompararAnunciosGlobalesInput
-   - **IMPORTANTE**: NO preguntar "¿de qué campaña?" si dice "todas"
-        
 🗺️ DESTINOS DISPONIBLES:
 - **Montaña**: Baqueira, Andorra, Pirineos
 - **Islas**: Ibiza, Mallorca, Menorca, Canarias
@@ -168,16 +170,17 @@ Responder SOLO preguntas sobre:
 
 🔑 REGLAS CRÍTICAS:
 
-1. **Si mencionan un NOMBRE** (Baqueira, Ibiza, etc.) → SIEMPRE busca primero con BuscarCampanaPorNombreInput
+1. **Si mencionan un NOMBRE** → SIEMPRE busca primero con BuscarCampanaPorNombreInput
 2. **NUNCA pidas el ID al usuario** si mencionó un nombre
 3. **Si la búsqueda retorna id_campana="None"**, informa que no se encontró esa campaña
-4. 🔥 **Si preguntan "¿qué anuncio...?"** → SIEMPRE usar CompararAnunciosInput
-5. 🔥 **Si dicen "todos" (los anuncios)** → usar limite=100, NO preguntar cuántos
-6. 🔥 **Si preguntan por anuncios que empeoraron** → CompararAnunciosInput automáticamente
-7. Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
-8. Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
-9. Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
-10. NUNCA inventes métricas
+4. 🔥 **Si preguntan "¿qué anuncio empeoró/mejoró?"** → CompararAnunciosInput
+5. 🔥 **Si preguntan "¿qué anuncio tiene el mejor/peor X?"** → ObtenerAnunciosPorRendimientoInput(ordenar_por=X)
+6. 🔥 **Si dicen "todos" (los anuncios)** → limite=100, NO preguntar cuántos
+7. 🔥 **Si dicen "todas" (las campañas)** → CompararAnunciosGlobalesInput, NO preguntar cuál
+8. Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
+9. Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
+10. Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
+11. NUNCA inventes métricas
 
 📅 PERÍODOS VÁLIDOS:
 - "última semana" / "últimos 7 días" → last_7d
@@ -187,17 +190,26 @@ Responder SOLO preguntas sobre:
 - "semana pasada" → last_week
 - Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
 
-🔥 EJEMPLO DE CONVERSACIÓN CORRECTA:
+🔥 EJEMPLOS DE CONVERSACIÓN CORRECTA:
 
-Usuario: "¿hay algún anuncio que ha empeorado y que explique el cambio en el CPA?"
-1. Buscar campaña mencionada en contexto (Baqueira)
-2. Usar CompararAnunciosInput(campana_id="...", periodo_actual="last_7d", periodo_anterior="previous_7d")
-3. Analizar resultado y explicar qué anuncio(s) empeoró/empeorararon
+Usuario: "¿Qué anuncio tiene el mejor CTR en Costa Blanca?"
+1. BuscarCampanaPorNombreInput(nombre_campana="Costa Blanca")
+2. ObtenerAnunciosPorRendimientoInput(campana_id="...", ordenar_por="ctr", limite=1)
+✅ Respuesta: "El anuncio X tiene el mejor CTR con Y%"
 
-Usuario: "dame todos los anuncios"
+Usuario: "¿Hay algún anuncio que ha empeorado y que explique el cambio en el CPA?"
 1. Buscar campaña en contexto
-2. Usar ObtenerAnunciosPorRendimientoInput(campana_id="...", limite=100)
-3. Mostrar TODOS los anuncios (no preguntar "¿cuántos?")
+2. CompararAnunciosInput(campana_id="...", periodo_actual="last_7d", periodo_anterior="previous_7d")
+✅ Respuesta: "Sí, el anuncio X empeoró un Z% en CPA"
+
+Usuario: "Dame todos los anuncios"
+1. Buscar campaña en contexto
+2. ObtenerAnunciosPorRendimientoInput(campana_id="...", limite=100)
+✅ Respuesta: Lista completa de anuncios (NO preguntar "¿cuántos?")
+
+Usuario: "¿Cómo fueron todas las campañas?"
+1. CompararAnunciosGlobalesInput(periodo_actual="last_7d", periodo_anterior="previous_7d")
+✅ Respuesta: Análisis de todas las campañas (NO preguntar "¿de qué campaña?")
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -208,7 +220,6 @@ def call_performance_llm(state: PerformanceAgentState):
     """Nodo que llama al LLM con herramientas de rendimiento"""
     messages = state["messages"]
     
-    # Agregar system message si no existe
     has_system = any(isinstance(msg, SystemMessage) for msg in messages)
     if not has_system:
         messages = [SystemMessage(content=PERFORMANCE_AGENT_INSTRUCTION)] + messages
@@ -231,20 +242,26 @@ def execute_performance_tools(state: PerformanceAgentState):
         # Búsqueda
         "BuscarCampanaPorNombreInput": (buscar_campana_por_nombre_func, BuscarCampanaPorNombreInput),
         
-        # Existentes
+        # Métricas de campaña
         "ObtenerMetricasCampanaInput": (obtener_metricas_campana_func, ObtenerMetricasCampanaInput),
-        "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
-        "CompararPeriodosInput": (comparar_periodos_func, CompararPeriodosInput),
         "ObtenerMetricasGlobalesInput": (obtener_metricas_globales_func, ObtenerMetricasGlobalesInput),
         
-        # 🆕 Nuevas
-        "ObtenerMetricasPorDestinoInput": (obtener_metricas_por_destino_func, ObtenerMetricasPorDestinoInput),
-        "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
-        "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
-        "CompararDestinosInput": (comparar_destinos_func, CompararDestinosInput),
-
+        # 🔥 Anuncios (CORREGIDO)
+        "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
         "ObtenerMetricasAnuncioInput": (obtener_metricas_anuncio_func, ObtenerMetricasAnuncioInput),
         "CompararAnunciosInput": (comparar_anuncios_func, CompararAnunciosInput),
+        "CompararAnunciosGlobalesInput": (comparar_anuncios_globales_func, CompararAnunciosGlobalesInput),
+        
+        # Comparaciones
+        "CompararPeriodosInput": (comparar_periodos_func, CompararPeriodosInput),
+        
+        # Por destino
+        "ObtenerMetricasPorDestinoInput": (obtener_metricas_por_destino_func, ObtenerMetricasPorDestinoInput),
+        "CompararDestinosInput": (comparar_destinos_func, CompararDestinosInput),
+        
+        # Otras
+        "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
+        "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
     }
     
     last_message = state["messages"][-1]
@@ -273,14 +290,12 @@ def execute_performance_tools(state: PerformanceAgentState):
             tool_input = tool_input_class(**tool_args)
             result = tool_func(tool_input)
             
-            # ✅ Manejo específico para BuscarCampanaPorNombreInput
             if tool_name == "BuscarCampanaPorNombreInput":
                 content = json.dumps({
                     "id_campana": result.id_campana,
                     "nombre_encontrado": result.nombre_encontrado
                 })
             else:
-                # Extraer contenido
                 content = result.datos_json if hasattr(result, 'datos_json') else str(result)
             
             results.append(ToolMessage(content=content, tool_call_id=tool_id))
@@ -322,7 +337,6 @@ def create_performance_agent():
     )
     workflow.add_edge("execute_tools", "call_llm")
     
-    # Compilar con memoria
     checkpointer = MemorySaver()
     app = workflow.compile(checkpointer=checkpointer)
     
@@ -340,10 +354,10 @@ if __name__ == "__main__":
     print("\n🧪 Testing PerformanceAgent...\n")
     
     test_queries = [
-        "¿cuánto he gastado en Baqueira esta semana?",
-        "dame el TOP 3 de anuncios de Ibiza",
-        "compara esta semana con la anterior",
-        "métricas globales de todas las campañas",
+        "¿Qué anuncio tiene el mejor CTR en Costa Blanca?",
+        "¿Hay algún anuncio que ha empeorado?",
+        "Dame todos los anuncios de Baqueira",
+        "¿Cómo fueron todas las campañas vs la semana pasada?",
     ]
     
     for query in test_queries:

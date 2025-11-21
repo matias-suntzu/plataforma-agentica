@@ -45,12 +45,16 @@ class ObtenerMetricasCampanaOutput(BaseModel):
 
 
 class ObtenerAnunciosPorRendimientoInput(BaseModel):
-    """Obtiene TOP N anuncios de una campaña"""
+    """Obtiene TOP N anuncios de una campaña ordenados por métrica específica"""
     campana_id: str = Field(description="ID de la campaña")
     date_preset: str = Field(default="last_7d", description="Período")
     date_start: str = Field(default=None, description="Fecha inicio")
     date_end: str = Field(default=None, description="Fecha fin")
     limite: int = Field(default=3, description="TOP N anuncios")
+    ordenar_por: str = Field(
+        default="clicks", 
+        description="Métrica para ordenar: clicks, ctr, cpa, conversiones, impressions, cpc, spend"
+    )
 
 
 class ObtenerAnunciosPorRendimientoOutput(BaseModel):
@@ -165,15 +169,13 @@ class CompararAnunciosGlobalesOutput(BaseModel):
 
 # ========== MAPEO DE DATE PRESETS ==========
 
-# Mapeo de expresiones humanas a presets válidos de Meta API
 DATE_PRESET_MAP = {
-    # Expresiones comunes → Presets válidos
     "ultima semana": "last_7d",
     "última semana": "last_7d",
     "semana pasada": "last_7d",
     "ultimos 7 dias": "last_7d",
     "últimos 7 días": "last_7d",
-    "last_week": "last_7d",  # Traducir automáticamente
+    "last_week": "last_7d",
     
     "ultimos 14 dias": "last_14d",
     "últimos 14 días": "last_14d",
@@ -194,23 +196,7 @@ DATE_PRESET_MAP = {
 
 
 def normalize_date_preset(date_preset: str) -> str:
-    """
-    Normaliza un date_preset a un valor válido de Meta API.
-    
-    Args:
-        date_preset: Preset del usuario (puede ser inválido)
-        
-    Returns:
-        Preset válido de Meta API
-        
-    Example:
-        >>> normalize_date_preset("last_week")
-        "last_7d"
-        
-        >>> normalize_date_preset("última semana")
-        "last_7d"
-    """
-    # Si ya es válido, retornar
+    """Normaliza un date_preset a un valor válido de Meta API"""
     valid_presets = [
         "today", "yesterday", "this_month", "last_month",
         "this_quarter", "last_3d", "last_7d", "last_14d",
@@ -223,36 +209,24 @@ def normalize_date_preset(date_preset: str) -> str:
     if date_preset in valid_presets:
         return date_preset
     
-    # Intentar mapear
     normalized = DATE_PRESET_MAP.get(date_preset.lower())
     
     if normalized:
         logger.info(f"📅 Normalizando date_preset: '{date_preset}' → '{normalized}'")
         return normalized
     
-    # Si no se encuentra, usar last_7d por defecto
     logger.warning(f"⚠️ date_preset inválido: '{date_preset}'. Usando 'last_7d'")
     return "last_7d"
 
 # ========== FUNCIONES ==========
 
 def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> ObtenerMetricasCampanaOutput:
-    """
-    Obtiene métricas de rendimiento de UNA campaña específica.
-    
-    Métricas incluidas:
-    - Gasto total
-    - Impresiones, clicks, CTR
-    - CPM, CPC
-    - Conversiones (por tipo), CPA
-    - Ratio de conversiones
-    """
+    """Obtiene métricas de rendimiento de UNA campaña específica"""
     try:
         campaign = Campaign(input.campana_id)
         
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
-        # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'campaign'}
         
@@ -263,7 +237,6 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
             params['date_preset'] = date_preset_normalized
             periodo_str = date_preset_normalized
         
-        # Campos de insights
         fields = [
             AdsInsights.Field.campaign_name,
             AdsInsights.Field.spend,
@@ -286,7 +259,6 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
                 })
             )
         
-        # Agregar métricas
         total_spend = 0.0
         total_impressions = 0
         total_clicks = 0
@@ -298,17 +270,14 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
             total_impressions += int(insight.get('impressions', 0))
             total_clicks += int(insight.get('clicks', 0))
             
-            # Procesar conversiones
             for action in insight.get('actions', []):
                 action_type = action.get('action_type')
                 value = int(action.get('value', 0))
                 conversiones_por_tipo[action_type] = conversiones_por_tipo.get(action_type, 0) + value
             
-            # Valor de conversiones
             for cv in insight.get('conversion_values', []):
                 valor_conversion_total += float(cv.get('value', 0))
         
-        # Calcular métricas derivadas
         total_conversiones = sum(conversiones_por_tipo.values())
         ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
         cpm = (total_spend / total_impressions * 1000) if total_impressions > 0 else 0
@@ -346,17 +315,22 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
 
 def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> ObtenerAnunciosPorRendimientoOutput:
     """
-    Obtiene TOP N anuncios de una campaña ordenados por clicks.
+    🔥 CORREGIDO: Obtiene TOP N anuncios ordenados por métrica FLEXIBLE
     
-    Returns:
-        Lista de anuncios con métricas completas
+    Ahora soporta ordenar por:
+    - clicks (mayor = mejor)
+    - ctr (mayor = mejor)
+    - conversiones (mayor = mejor)
+    - impressions (mayor = mejor)
+    - spend (mayor = peor, se invierte el orden)
+    - cpa (menor = mejor, se invierte el orden)
+    - cpc (menor = mejor, se invierte el orden)
     """
     try:
         campaign = Campaign(input.campana_id)
         
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
-        # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'ad'}
         
@@ -365,7 +339,6 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         else:
             params['date_preset'] = date_preset_normalized
         
-        # Campos de insights
         fields = [
             AdsInsights.Field.ad_id,
             AdsInsights.Field.ad_name,
@@ -387,7 +360,6 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
                 })
             )
         
-        # Procesar anuncios
         anuncios = []
         for insight in insights:
             conversiones = 0
@@ -397,31 +369,57 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
             
             spend = float(insight.get('spend', 0))
             clicks = int(insight.get('clicks', 0))
-            cpa = (spend / conversiones) if conversiones > 0 else 0
+            impressions = int(insight.get('impressions', 0))
+            ctr = float(insight.get('ctr', 0))
+            cpa = (spend / conversiones) if conversiones > 0 else float('inf')
+            cpc = float(insight.get('cpc', 0))
             
             anuncios.append({
                 "ad_id": insight.get('ad_id'),
                 "ad_name": insight.get('ad_name', 'Sin nombre'),
                 "spend_eur": round(spend, 2),
-                "impressions": int(insight.get('impressions', 0)),
+                "impressions": impressions,
                 "clicks": clicks,
-                "ctr": round(float(insight.get('ctr', 0)), 2),
+                "ctr": round(ctr, 2),
                 "cpm": round(float(insight.get('cpm', 0)), 2),
-                "cpc": round(float(insight.get('cpc', 0)), 2),
+                "cpc": round(cpc, 2),
                 "conversiones": conversiones,
-                "cpa": round(cpa, 2)
+                "cpa": round(cpa, 2) if cpa != float('inf') else None
             })
         
-        # Ordenar por clicks y limitar
-        top_anuncios = sorted(anuncios, key=lambda x: x['clicks'], reverse=True)[:input.limite]
+        # 🔥 LÓGICA DE ORDENAMIENTO FLEXIBLE
+        metrica_key_map = {
+            "clicks": ("clicks", True),           # Mayor = mejor
+            "ctr": ("ctr", True),                # Mayor = mejor
+            "conversiones": ("conversiones", True), # Mayor = mejor
+            "impressions": ("impressions", True), # Mayor = mejor
+            "spend": ("spend_eur", False),       # Mayor = peor (invertir)
+            "cpa": ("cpa", False),               # Menor = mejor (invertir)
+            "cpc": ("cpc", False),               # Menor = mejor (invertir)
+        }
+        
+        sort_key, reverse_order = metrica_key_map.get(
+            input.ordenar_por.lower(), 
+            ("clicks", True)  # Default
+        )
+        
+        # Ordenar con manejo de None/inf
+        def safe_sort_key(x):
+            val = x.get(sort_key)
+            if val is None or val == float('inf'):
+                return float('-inf') if reverse_order else float('inf')
+            return val
+        
+        top_anuncios = sorted(anuncios, key=safe_sort_key, reverse=reverse_order)[:input.limite]
         
         output = {
             "campaign_id": input.campana_id,
             "top_n": len(top_anuncios),
+            "ordenado_por": input.ordenar_por,
             "anuncios": top_anuncios
         }
         
-        logger.info(f"✅ TOP {len(top_anuncios)} anuncios de campaña {input.campana_id}")
+        logger.info(f"✅ TOP {len(top_anuncios)} anuncios de campaña {input.campana_id} (ordenado por {input.ordenar_por})")
         return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:
