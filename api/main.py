@@ -533,3 +533,65 @@ async def status():
         },
         "version": "5.0-recommendations"
     }
+
+# ============================================
+# 🆕 EXPOSICIÓN DE GRAPH PARA LANGGRAPH STUDIO
+# ============================================
+
+from langgraph.graph import StateGraph
+from langchain_core.messages import BaseMessage
+from typing import TypedDict
+
+# Define el estado que manejará el graph
+class AgentState(TypedDict):
+    messages: List[BaseMessage]
+    thread_id: str
+    workflow_type: str
+    metadata: Dict[str, Any]
+
+# Crear el graph que LangGraph Studio puede entender
+def create_graph():
+    """Crear un graph LangGraph que encapsula el orchestrator"""
+    graph = StateGraph(AgentState)
+    
+    def process_node(state: AgentState) -> AgentState:
+        """Nodo que procesa la query usando el orchestrator"""
+        if not AGENT_READY or orchestrator_v5 is None:
+            return {
+                **state,
+                "messages": state["messages"] + [AIMessage(content="Agente inicializando...")]
+            }
+        
+        # Obtener el último mensaje (query del usuario)
+        if state["messages"]:
+            last_message = state["messages"][-1]
+            if isinstance(last_message, HumanMessage):
+                query = last_message.content
+                
+                # Procesar con orchestrator
+                result = orchestrator_v5.process_query(
+                    query=query,
+                    thread_id=state.get("thread_id", f"thread_{uuid.uuid4().hex[:12]}"),
+                    messages=state["messages"][:-1]  # Historial sin el último mensaje
+                )
+                
+                # Agregar respuesta
+                response_message = AIMessage(content=result.content)
+                
+                return {
+                    **state,
+                    "messages": state["messages"] + [response_message],
+                    "workflow_type": result.workflow_type,
+                    "metadata": result.metadata or {}
+                }
+        
+        return state
+    
+    graph.add_node("process", process_node)
+    graph.set_entry_point("process")
+    graph.set_finish_point("process")
+    
+    return graph.compile()
+
+# Crear la instancia del graph
+graph = create_graph()
