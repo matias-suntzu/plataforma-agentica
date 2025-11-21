@@ -534,64 +534,121 @@ async def status():
         "version": "5.0-recommendations"
     }
 
-# ============================================
-# 🆕 EXPOSICIÓN DE GRAPH PARA LANGGRAPH STUDIO
-# ============================================
+@api.get("/info")
+async def get_info():
+    """Información del servidor para LangSmith Studio"""
+    return {
+        "type": "langgraph",
+        "version": "5.1-context",
+        "name": "Meta Ads Agent API V5"
+    }
 
-from langgraph.graph import StateGraph
-from langchain_core.messages import BaseMessage
-from typing import TypedDict
 
-# Define el estado que manejará el graph
-class AgentState(TypedDict):
-    messages: List[BaseMessage]
-    thread_id: str
-    workflow_type: str
-    metadata: Dict[str, Any]
-
-# Crear el graph que LangGraph Studio puede entender
-def create_graph():
-    """Crear un graph LangGraph que encapsula el orchestrator"""
-    graph = StateGraph(AgentState)
+@api.post("/assistants/search")
+async def search_assistants():
+    """Buscar assistants disponibles para LangSmith Studio"""
+    if not AGENT_READY:
+        return {"assistants": []}
     
-    def process_node(state: AgentState) -> AgentState:
-        """Nodo que procesa la query usando el orchestrator"""
-        if not AGENT_READY or orchestrator_v5 is None:
-            return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content="Agente inicializando...")]
-            }
-        
-        # Obtener el último mensaje (query del usuario)
-        if state["messages"]:
-            last_message = state["messages"][-1]
-            if isinstance(last_message, HumanMessage):
-                query = last_message.content
-                
-                # Procesar con orchestrator
-                result = orchestrator_v5.process_query(
-                    query=query,
-                    thread_id=state.get("thread_id", f"thread_{uuid.uuid4().hex[:12]}"),
-                    messages=state["messages"][:-1]  # Historial sin el último mensaje
-                )
-                
-                # Agregar respuesta
-                response_message = AIMessage(content=result.content)
-                
-                return {
-                    **state,
-                    "messages": state["messages"] + [response_message],
-                    "workflow_type": result.workflow_type,
-                    "metadata": result.metadata or {}
+    return {
+        "assistants": [
+            {
+                "assistant_id": "meta-ads-orchestrator",
+                "name": "Meta Ads Orchestrator V5",
+                "description": "Agente multi-especialista con 4 agentes (Config, Performance, Recommendation, Multi-Agent)",
+                "config": {
+                    "configurable": {
+                        "thread_id": "default"
+                    }
                 }
-        
-        return state
-    
-    graph.add_node("process", process_node)
-    graph.set_entry_point("process")
-    graph.set_finish_point("process")
-    
-    return graph.compile()
+            }
+        ]
+    }
 
-# Crear la instancia del graph
-graph = create_graph()
+
+@api.get("/assistants/{assistant_id}")
+async def get_assistant(assistant_id: str):
+    """Obtener detalles de un assistant"""
+    if assistant_id != "meta-ads-orchestrator":
+        raise HTTPException(status_code=404, detail="Assistant no encontrado")
+    
+    return {
+        "assistant_id": "meta-ads-orchestrator",
+        "name": "Meta Ads Orchestrator V5",
+        "description": "Agente multi-especialista",
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+
+@api.post("/threads")
+async def create_thread():
+    """Crear un nuevo thread para LangSmith Studio"""
+    thread_id = f"thread_{uuid.uuid4().hex[:12]}"
+    return {
+        "thread_id": thread_id,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+
+@api.post("/threads/{thread_id}/runs")
+async def run_assistant(thread_id: str, request: dict):
+    """Ejecutar el assistant en un thread"""
+    if not AGENT_READY or orchestrator_v5 is None:
+        raise HTTPException(status_code=503, detail="Agente inicializando")
+    
+    try:
+        # Obtener query del request
+        user_input = request.get("input", {}).get("query", "")
+        
+        if not user_input:
+            raise HTTPException(status_code=400, detail="Query requerida")
+        
+        # Procesar con tu orchestrator
+        messages = get_thread_messages(thread_id)
+        result = orchestrator_v5.process_query(
+            query=user_input,
+            thread_id=thread_id,
+            messages=messages
+        )
+        
+        # Guardar en historial
+        add_message_to_thread(thread_id, HumanMessage(content=user_input))
+        add_message_to_thread(thread_id, AIMessage(content=result.content))
+        
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        
+        return {
+            "run_id": run_id,
+            "thread_id": thread_id,
+            "status": "success",
+            "output": {
+                "response": result.content,
+                "workflow_type": result.workflow_type,
+                "metadata": result.metadata or {}
+            },
+            "created_at": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error en run: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api.get("/threads/{thread_id}/state")
+async def get_thread_state(thread_id: str):
+    """Obtener estado del thread"""
+    messages = get_thread_messages(thread_id)
+    
+    return {
+        "thread_id": thread_id,
+        "values": {
+            "messages": [
+                {
+                    "type": "human" if isinstance(m, HumanMessage) else "ai",
+                    "content": m.content
+                }
+                for m in messages
+            ]
+        },
+        "next": []
+    }
