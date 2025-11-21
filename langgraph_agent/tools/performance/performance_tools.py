@@ -45,15 +45,15 @@ class ObtenerMetricasCampanaOutput(BaseModel):
 
 
 class ObtenerAnunciosPorRendimientoInput(BaseModel):
-    """Obtiene TOP N anuncios de una campaña ordenados por métrica específica"""
+    """Obtiene TOP N anuncios de una campaña"""
     campana_id: str = Field(description="ID de la campaña")
     date_preset: str = Field(default="last_7d", description="Período")
     date_start: str = Field(default=None, description="Fecha inicio")
     date_end: str = Field(default=None, description="Fecha fin")
     limite: int = Field(default=3, description="TOP N anuncios")
     ordenar_por: str = Field(
-        default="clicks", 
-        description="Métrica para ordenar: clicks, ctr, cpa, conversiones, impressions, cpc, spend"
+        default="clicks",
+        description="Métrica para ordenar: clicks, ctr, cpa, conversiones, impressions"
     )
 
 
@@ -315,22 +315,24 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
 
 def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> ObtenerAnunciosPorRendimientoOutput:
     """
-    🔥 CORREGIDO: Obtiene TOP N anuncios ordenados por métrica FLEXIBLE
+    Obtiene TOP N anuncios de una campaña ordenados por la métrica especificada.
     
-    Ahora soporta ordenar por:
-    - clicks (mayor = mejor)
-    - ctr (mayor = mejor)
-    - conversiones (mayor = mejor)
-    - impressions (mayor = mejor)
-    - spend (mayor = peor, se invierte el orden)
-    - cpa (menor = mejor, se invierte el orden)
-    - cpc (menor = mejor, se invierte el orden)
+    Métricas soportadas:
+    - clicks: Más clicks (default)
+    - ctr: Mejor CTR
+    - cpa: Mejor CPA (menor = mejor)
+    - conversiones: Más conversiones
+    - impressions: Más impresiones
+    
+    Returns:
+        Lista de anuncios con métricas completas
     """
     try:
         campaign = Campaign(input.campana_id)
         
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
+        # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'ad'}
         
@@ -339,6 +341,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         else:
             params['date_preset'] = date_preset_normalized
         
+        # Campos de insights
         fields = [
             AdsInsights.Field.ad_id,
             AdsInsights.Field.ad_name,
@@ -356,10 +359,13 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         if not insights:
             return ObtenerAnunciosPorRendimientoOutput(
                 datos_json=json.dumps({
-                    "error": f"No hay datos de anuncios para campaña {input.campana_id}"
+                    "error": f"No hay datos de anuncios para campaña {input.campana_id}",
+                    "campana_id": input.campana_id,
+                    "periodo": input.date_preset
                 })
             )
         
+        # Procesar anuncios
         anuncios = []
         for insight in insights:
             conversiones = 0
@@ -372,7 +378,6 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
             impressions = int(insight.get('impressions', 0))
             ctr = float(insight.get('ctr', 0))
             cpa = (spend / conversiones) if conversiones > 0 else float('inf')
-            cpc = float(insight.get('cpc', 0))
             
             anuncios.append({
                 "ad_id": insight.get('ad_id'),
@@ -382,35 +387,26 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
                 "clicks": clicks,
                 "ctr": round(ctr, 2),
                 "cpm": round(float(insight.get('cpm', 0)), 2),
-                "cpc": round(cpc, 2),
+                "cpc": round(float(insight.get('cpc', 0)), 2),
                 "conversiones": conversiones,
                 "cpa": round(cpa, 2) if cpa != float('inf') else None
             })
         
-        # 🔥 LÓGICA DE ORDENAMIENTO FLEXIBLE
-        metrica_key_map = {
-            "clicks": ("clicks", True),           # Mayor = mejor
-            "ctr": ("ctr", True),                # Mayor = mejor
-            "conversiones": ("conversiones", True), # Mayor = mejor
-            "impressions": ("impressions", True), # Mayor = mejor
-            "spend": ("spend_eur", False),       # Mayor = peor (invertir)
-            "cpa": ("cpa", False),               # Menor = mejor (invertir)
-            "cpc": ("cpc", False),               # Menor = mejor (invertir)
-        }
+        # 🔥 NUEVA LÓGICA DE ORDENAMIENTO
+        if input.ordenar_por == "ctr":
+            anuncios.sort(key=lambda x: x['ctr'], reverse=True)
+        elif input.ordenar_por == "cpa":
+            # Para CPA: menor es mejor, pero None va al final
+            anuncios.sort(key=lambda x: (x['cpa'] is None, x['cpa'] or float('inf')))
+        elif input.ordenar_por == "conversiones":
+            anuncios.sort(key=lambda x: x['conversiones'], reverse=True)
+        elif input.ordenar_por == "impressions":
+            anuncios.sort(key=lambda x: x['impressions'], reverse=True)
+        else:  # clicks (default)
+            anuncios.sort(key=lambda x: x['clicks'], reverse=True)
         
-        sort_key, reverse_order = metrica_key_map.get(
-            input.ordenar_por.lower(), 
-            ("clicks", True)  # Default
-        )
-        
-        # Ordenar con manejo de None/inf
-        def safe_sort_key(x):
-            val = x.get(sort_key)
-            if val is None or val == float('inf'):
-                return float('-inf') if reverse_order else float('inf')
-            return val
-        
-        top_anuncios = sorted(anuncios, key=safe_sort_key, reverse=reverse_order)[:input.limite]
+        # Limitar resultados
+        top_anuncios = anuncios[:input.limite]
         
         output = {
             "campaign_id": input.campana_id,
@@ -419,7 +415,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
             "anuncios": top_anuncios
         }
         
-        logger.info(f"✅ TOP {len(top_anuncios)} anuncios de campaña {input.campana_id} (ordenado por {input.ordenar_por})")
+        logger.info(f"✅ TOP {len(top_anuncios)} anuncios ordenados por {input.ordenar_por}")
         return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:

@@ -1,0 +1,192 @@
+{
+  "total": 65,
+  "passed": 59,
+  "failed": 6,
+  "errors": 0,
+  "details": [
+    {
+      "test": "Listado simple sin métricas",
+      "query": "lista todas las campañas",
+      "expected": "simple",
+      "got": "simple",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Conteo simple",
+      "query": "¿cuántas campañas activas tengo?",
+      "expected": "simple",
+      "got": "simple",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Configuración específica",
+      "query": "¿qué presupuesto tiene Baqueira?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Config técnica",
+      "query": "estrategia de puja de Ibiza",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Métrica de rendimiento",
+      "query": "¿cuánto he gastado en Costa Blanca esta semana?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Métrica específica",
+      "query": "conversiones de Menorca últimos 7 días",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Comparación de períodos",
+      "query": "compara esta semana con la anterior",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Recomendación específica",
+      "query": "dame recomendaciones para mejorar el CPA de Baqueira",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Consulta sobre optimización",
+      "query": "¿debería activar Advantage+ en Ibiza?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Análisis completo",
+      "query": "analiza la campaña de Baqueira",
+      "expected": "multi_agent",
+      "got": "multi_agent",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "Análisis ambiguo → multi",
+      "query": "¿cómo está Costa del Sol?",
+      "expected": "multi_agent",
+      "got": "multi_agent",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔄 Continuación: Respuesta a pregunta del bot",
+      "query": "baqueira",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔄 Continuación: 'todas' en contexto",
+      "query": "todas",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔄 Continuación: Referencia implícita",
+      "query": "de la de ibiza",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔥 RANKING: Mejor anuncio por métrica específica",
+      "query": "¿Qué anuncio tiene el mejor CTR en Costa Blanca?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔥 COMPARACIÓN TEMPORAL: Identificar anuncios que empeoraron",
+      "query": "¿Hay algún anuncio que ha empeorado y que explique el cambio en el CPA?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔥 LISTADO COMPLETO: Todos los anuncios (limite=100)",
+      "query": "Dame todos los anuncios de Baqueira",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 1.0,
+      "passed": true
+    },
+    {
+      "test": "🔥 ANÁLISIS: Anuncio que causa cambio en métrica",
+      "query": "¿Qué anuncio explica el aumento del CPA?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔥 TOP N: Ranking con métrica ordenar_por=cpa",
+      "query": "TOP 3 anuncios con mejor CPA en Ibiza",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🔥 PEOR: Ordenamiento inverso",
+      "query": "¿Cuál anuncio tiene peor rendimiento?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🚨 EDGE: 'todas' sin especificar → NO preguntar",
+      "query": "¿Cómo fueron todas las campañas?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🚨 EDGE: 'todos' → limite=100, NO preguntar",
+      "query": "dame todos los anuncios",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    },
+    {
+      "test": "🚨 EDGE: Pregunta sin campaña específica",
+      "query": "¿hay anuncios que hayan empeorado?",
+      "expected": "agentic",
+      "got": "agentic",
+      "confidence": 0.95,
+      "passed": true
+    }
+  ]
+}
