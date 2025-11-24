@@ -24,7 +24,7 @@ from ...utils.destination_classifier import (
       get_top_destinations
   )
 
-from typing import List, Dict
+from typing import List, Dict # Importación de Dict asegurada
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +66,14 @@ CONVERSION_EVENTS = [
 
 # ========== SCHEMAS ==========
 
+# Definición CORREGIDA de ObtenerMetricasCampanaInput (se eliminó la duplicación)
 class ObtenerMetricasCampanaInput(BaseModel):
     """Obtiene métricas de rendimiento de una campaña"""
     campana_id: str = Field(description="ID de la campaña")
     date_preset: str = Field(default="last_7d", description="Período: last_7d, last_month, etc.")
     date_start: str = Field(default=None, description="Fecha inicio personalizada (YYYY-MM-DD)")
     date_end: str = Field(default=None, description="Fecha fin personalizada (YYYY-MM-DD)")
+    incluir_funnel: bool = Field(default=True, description="🆕 Incluir métricas del funnel (Subscriber/MQL/SQL)")
 
 
 class ObtenerMetricasCampanaOutput(BaseModel):
@@ -167,19 +169,20 @@ class CompararDestinosOutput(BaseModel):
     """Salida con comparación de destinos"""
     datos_json: str
 
-class ObtenerMetricasCampanaInput(BaseModel):
-    """Obtiene métricas de rendimiento de una campaña"""
-    campana_id: str = Field(description="ID de la campaña")
+
+# NUEVOS SCHEMAS AÑADIDOS para el ANUNCIO (Ad) - Resuelve NameError/ImportError
+class ObtenerMetricasAnuncioInput(BaseModel):
+    """Obtiene métricas de rendimiento de UN anuncio específico"""
+    anuncio_id: str = Field(description="ID del anuncio")
     date_preset: str = Field(default="last_7d", description="Período: last_7d, last_month, etc.")
     date_start: str = Field(default=None, description="Fecha inicio personalizada (YYYY-MM-DD)")
     date_end: str = Field(default=None, description="Fecha fin personalizada (YYYY-MM-DD)")
-    incluir_funnel: bool = Field(default=True, description="🆕 Incluir métricas del funnel (Subscriber/MQL/SQL)")
 
 
-
-class ObtenerMetricasCampanaOutput(BaseModel):
-    """Salida con métricas completas"""
+class ObtenerMetricasAnuncioOutput(BaseModel):
+    """Salida con métricas de un anuncio"""
     datos_json: str
+
 
 class CompararAnunciosInput(BaseModel):
     """Compara rendimiento de anuncios de una campaña"""
@@ -374,7 +377,7 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
     try:
         campaign = Campaign(input.campana_id)
         
-        from ..tools.performance.performance_tools import normalize_date_preset
+        # Corrección: Uso directo de la función (se eliminó la importación circular)
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
         use_custom = bool(input.date_start and input.date_end)
@@ -523,7 +526,7 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
         return ObtenerMetricasCampanaOutput(datos_json=json.dumps({"error": str(e)}))
 
 
-def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> "ObtenerAnunciosPorRendimientoOutput":
+def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> ObtenerAnunciosPorRendimientoOutput:
     """
     🆕 ACTUALIZADO: Obtiene TOP N anuncios ordenados por métrica FLEXIBLE.
     
@@ -534,7 +537,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
     try:
         campaign = Campaign(input.campana_id)
         
-        from ..tools.performance.performance_tools import normalize_date_preset
+        # Corrección: Uso directo de la función (se eliminó la importación circular)
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
         use_custom = bool(input.date_start and input.date_end)
@@ -560,6 +563,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         insights = campaign.get_insights(fields=fields, params=params)
         
         if not insights:
+            # Corrección: Eliminación de comillas
             return ObtenerAnunciosPorRendimientoOutput(
                 datos_json=json.dumps({
                     "error": f"No hay datos de anuncios para campaña {input.campana_id}"
@@ -570,27 +574,26 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         for insight in insights:
             # 🆕 Extraer conversiones por tipo
             conversions_by_type = extract_conversion_metrics(insight)
-            
             spend = float(insight.get('spend', 0))
             clicks = int(insight.get('clicks', 0))
-            impressions = int(insight.get('impressions', 0))
-            ctr = float(insight.get('ctr', 0))
-            cpc = float(insight.get('cpc', 0))
+            total_conversions = conversions_by_type["total"]
             
-            # Calcular CPAs por tipo
+            cpc = (spend / clicks) if clicks > 0 else 0
+            cpa_total = (spend / total_conversions) if total_conversions > 0 else float('inf')
+            
+            # CPAs por tipo de conversión (infinito si no hay conversiones)
             cpa_subscriber = (spend / conversions_by_type["subscriber"]) if conversions_by_type["subscriber"] > 0 else float('inf')
             cpa_mql = (spend / conversions_by_type["mql"]) if conversions_by_type["mql"] > 0 else float('inf')
             cpa_sql = (spend / conversions_by_type["sql"]) if conversions_by_type["sql"] > 0 else float('inf')
             cpa_customer = (spend / conversions_by_type["customer"]) if conversions_by_type["customer"] > 0 else float('inf')
-            cpa_total = (spend / conversions_by_type["total"]) if conversions_by_type["total"] > 0 else float('inf')
-            
+
             anuncios.append({
                 "ad_id": insight.get('ad_id'),
-                "ad_name": insight.get('ad_name', 'Sin nombre'),
+                "ad_name": insight.get('ad_name'),
                 "spend_eur": round(spend, 2),
-                "impressions": impressions,
+                "impressions": int(insight.get('impressions', 0)),
                 "clicks": clicks,
-                "ctr": round(ctr, 2),
+                "ctr": round(float(insight.get('ctr', 0)), 2),
                 "cpm": round(float(insight.get('cpm', 0)), 2),
                 "cpc": round(cpc, 2),
                 # 🆕 Conversiones por tipo
@@ -598,7 +601,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
                 "conversiones_mql": conversions_by_type["mql"],
                 "conversiones_sql": conversions_by_type["sql"],
                 "conversiones_customer": conversions_by_type["customer"],
-                "conversiones_total": conversions_by_type["total"],
+                "conversiones_total": total_conversions,
                 # 🆕 CPAs por tipo
                 "cpa_subscriber": round(cpa_subscriber, 2) if cpa_subscriber != float('inf') else None,
                 "cpa_mql": round(cpa_mql, 2) if cpa_mql != float('inf') else None,
@@ -624,32 +627,28 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         }
         
         sort_key, reverse_order = metrica_key_map.get(
-            input.ordenar_por.lower(), 
-            ("clicks", True)
+            input.ordenar_por.lower(), ("clicks", True) # Default a clicks descendente
         )
-        
-        def safe_sort_key(x):
-            val = x.get(sort_key)
-            if val is None or val == float('inf'):
-                return float('-inf') if reverse_order else float('inf')
-            return val
-        
-        top_anuncios = sorted(anuncios, key=safe_sort_key, reverse=reverse_order)[:input.limite]
+
+        anuncios.sort(key=lambda x: x.get(sort_key, 0) or 0, reverse=reverse_order)
         
         output = {
             "campaign_id": input.campana_id,
-            "top_n": len(top_anuncios),
-            "ordenado_por": input.ordenar_por,
-            "anuncios": top_anuncios
+            "periodo": date_preset_normalized,
+            "ordenar_por": input.ordenar_por,
+            "total_anuncios": len(anuncios),
+            "top_anuncios": anuncios[:input.limite]
         }
         
-        logger.info(f"✅ TOP {len(top_anuncios)} anuncios de campaña {input.campana_id} (ordenado por {input.ordenar_por})")
-        return "ObtenerAnunciosPorRendimientoOutput"(datos_json=json.dumps(output, ensure_ascii=False))
+        logger.info(f"✅ TOP {input.limite} anuncios por {input.ordenar_por} de campaña {input.campana_id}")
+
+        # Corrección: Eliminación de comillas
+        return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:
-        logger.error(f"❌ Error obteniendo anuncios: {e}")
-        return "ObtenerAnunciosPorRendimientoOutput"(datos_json=json.dumps({"error": str(e)}))
-
+        logger.error(f"❌ Error obteniendo anuncios por rendimiento: {e}")
+        # Corrección: Eliminación de comillas
+        return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps({"error": str(e)}))
 
 def comparar_periodos_func(input: CompararPeriodosInput) -> CompararPeriodosOutput:
     """
@@ -1223,15 +1222,13 @@ def comparar_destinos_func(
         logger.error(f"❌ Error comparando destinos: {e}")
         return CompararDestinosOutput(datos_json=json.dumps({"error": str(e)}))
 
-# Asumiendo que se refiere a la métrica de AdSet
-def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMetricasAdsetOutput:
+# Corrección: Tipo de entrada y salida de Anuncio (Ad)
+def obtener_metricas_anuncio_func(input: ObtenerMetricasAnuncioInput) -> ObtenerMetricasAnuncioOutput:
     """
     Obtiene métricas de rendimiento de UN anuncio específico.
-    
     Responde queries como:
     - "¿Cómo está el anuncio X?"
     - "Dame métricas del anuncio Y"
-    - "¿Qué anuncio ha empeorado?"
     
     Métricas incluidas:
     - Gasto, impresiones, clicks, CTR
@@ -1239,17 +1236,14 @@ def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMe
     - Conversiones (por tipo)
     - Estado del anuncio
     
-    Returns:
-        Métricas completas del anuncio específico
+    Returns: Métricas completas del anuncio específico
     """
     try:
-        from facebook_business.adobjects.ad import Ad
-        
         ad = Ad(input.anuncio_id)
         
-        # Normalizar date_preset
+        # Corrección: Uso directo de la función (se eliminó la importación circular)
         date_preset_normalized = normalize_date_preset(input.date_preset)
-        
+
         # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'ad'}
@@ -1260,7 +1254,7 @@ def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMe
         else:
             params['date_preset'] = date_preset_normalized
             periodo_str = date_preset_normalized
-        
+
         # Campos de insights
         fields = [
             AdsInsights.Field.ad_id,
@@ -1282,62 +1276,56 @@ def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMe
         insights = ad.get_insights(fields=fields, params=params)
         
         if not insights:
-            # Si no hay insights, obtener info básica del anuncio
-            ad_info = ad.api_get(fields=['id', 'name', 'status', 'adset_id', 'campaign_id'])
-            return ObtenerMetricasAnuncioOutput(
+             return ObtenerMetricasAnuncioOutput(
                 datos_json=json.dumps({
-                    "ad_id": input.anuncio_id,
-                    "ad_name": ad_info.get('name', 'Sin nombre'),
-                    "status": ad_info.get('status', 'UNKNOWN'),
-                    "adset_id": ad_info.get('adset_id'),
-                    "campaign_id": ad_info.get('campaign_id'),
-                    "periodo": periodo_str,
-                    "error": f"No hay datos para este anuncio en {periodo_str}"
-                }, ensure_ascii=False)
+                    "error": f"No hay datos para anuncio {input.anuncio_id} en {periodo_str}"
+                })
             )
         
-        # Procesar métricas
-        insight = insights[0]  # Solo hay 1 insight para 1 anuncio
+        insight = insights[0] # Solo debe haber un insight para un anuncio
         
+        # Extraer métricas básicas
         spend = float(insight.get('spend', 0))
         impressions = int(insight.get('impressions', 0))
         clicks = int(insight.get('clicks', 0))
-        
-        # Procesar conversiones
-        conversiones_por_tipo = {}
-        total_conversiones = 0
-        for action in insight.get('actions', []):
-            action_type = action.get('action_type')
-            value = int(action.get('value', 0))
-            conversiones_por_tipo[action_type] = value
-            if action_type in ['purchase', 'lead', 'complete_registration']:
-                total_conversiones += value
-        
-        # Calcular métricas derivadas
-        ctr = (clicks / impressions * 100) if impressions > 0 else 0
-        cpm = (spend / impressions * 1000) if impressions > 0 else 0
+        ctr = float(insight.get('ctr', 0))
+        cpm = float(insight.get('cpm', 0))
         cpc = (spend / clicks) if clicks > 0 else 0
-        cpa = (spend / total_conversiones) if total_conversiones > 0 else 0
+
+        # Extraer conversiones por tipo
+        conversions_by_type = extract_conversion_metrics(insight)
+        total_conversiones = conversions_by_type["total"]
+        cpa_total = (spend / total_conversiones) if total_conversiones > 0 else None
         
+        # Calcular CPA por tipo de conversión
+        cpa_por_tipo = {}
+        for conv_type in ["subscriber", "mql", "sql", "customer"]:
+            count = conversions_by_type[conv_type]
+            cpa_por_tipo[conv_type] = round(spend / count, 2) if count > 0 else None
+            
         output = {
-            "ad_id": input.anuncio_id,
-            "ad_name": insight.get('ad_name', 'Sin nombre'),
-            "adset_id": insight.get('adset_id'),
-            "adset_name": insight.get('adset_name'),
-            "campaign_id": insight.get('campaign_id'),
-            "campaign_name": insight.get('campaign_name'),
+            "ad_id": insight.get('ad_id'),
+            "ad_name": insight.get('ad_name'),
+            "campana_id": insight.get('campaign_id'),
+            "campana_name": insight.get('campaign_name'),
             "periodo": periodo_str,
-            "metricas": {
+            "metricas_basicas": {
                 "gasto_eur": round(spend, 2),
                 "impresiones": impressions,
                 "clicks": clicks,
                 "ctr_porcentaje": round(ctr, 2),
                 "cpm_eur": round(cpm, 2),
                 "cpc_eur": round(cpc, 2),
-                "conversiones_total": total_conversiones,
-                "conversiones_por_tipo": conversiones_por_tipo,
-                "cpa_eur": round(cpa, 2) if total_conversiones > 0 else None
-            }
+            },
+            "conversiones_funnel": {
+                "subscriber": conversions_by_type["subscriber"],
+                "mql": conversions_by_type["mql"],
+                "sql": conversions_by_type["sql"],
+                "customer": conversions_by_type["customer"],
+                "total": total_conversiones,
+            },
+            "cpa_por_tipo": cpa_por_tipo,
+            "cpa_global_eur": round(cpa_total, 2) if cpa_total else None,
         }
         
         logger.info(f"✅ Métricas del anuncio {input.anuncio_id}: {spend}€, {total_conversiones} conversiones")
@@ -1346,7 +1334,6 @@ def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMe
     except Exception as e:
         logger.error(f"❌ Error obteniendo métricas del anuncio: {e}")
         return ObtenerMetricasAnuncioOutput(datos_json=json.dumps({"error": str(e)}))
-    
     
 def comparar_anuncios_func(input: CompararAnunciosInput) -> CompararAnunciosOutput:
     """
@@ -1582,20 +1569,18 @@ def comparar_anuncios_globales_func(input: CompararAnunciosGlobalesInput) -> Com
 # 🆕 NUEVA FUNCIÓN: Análisis completo del funnel de conversiones
 def obtener_funnel_conversiones_func(input: ObtenerFunnelConversionesInput) -> ObtenerFunnelConversionesOutput:
     """
-    🆕 NUEVO: Analiza el funnel completo de conversiones (Subscriber → MQL → SQL → Customer).
-    
+    Analiza el funnel completo de conversiones (Subscriber → MQL → SQL → Customer).
     Responde queries como:
-    - "¿Cómo está mi funnel de conversiones?"
+    - "¿Cómo está mi funnel?"
     - "Ratio de MQL a SQL de Baqueira"
     - "¿Cuántos subscribers se convirtieron en customers?"
     
-    Returns:
-        Análisis del funnel con ratios de conversión entre etapas
+    Returns: Análisis del funnel con ratios de conversión entre etapas
     """
     try:
-        from ..tools.performance.performance_tools import normalize_date_preset
+        # Corrección: Uso directo de la función (se eliminó la importación circular)
         date_preset_normalized = normalize_date_preset(input.date_preset)
-        
+
         # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'campaign' if input.campana_id else 'account'}
@@ -1619,58 +1604,48 @@ def obtener_funnel_conversiones_func(input: ObtenerFunnelConversionesInput) -> O
             campaign = Campaign(input.campana_id)
             insights = campaign.get_insights(fields=fields, params=params)
         else:
-            account = get_account()
+            account = get_account(settings.FB_ACT_ID)
             insights = account.get_insights(fields=fields, params=params)
+
+        if not insights:
+            return ObtenerFunnelConversionesOutput(
+                datos_json=json.dumps({
+                    "error": f"No hay datos para {input.campana_id or 'el nivel de cuenta'} en {periodo_str}"
+                })
+            )
         
-        # Agregar conversiones por tipo
         total_spend = 0.0
         funnel_totals = {
-            "subscriber": 0,
-            "mql": 0,
-            "sql": 0,
-            "customer": 0,
-            "total": 0
+            "subscriber": 0, "mql": 0, "sql": 0, "customer": 0, "total": 0,
         }
         
+        # Agregar insights
         for insight in insights:
             total_spend += float(insight.get('spend', 0))
             conversions_by_type = extract_conversion_metrics(insight)
-            
             for key in ["subscriber", "mql", "sql", "customer", "total"]:
-                funnel_totals[key] += conversions_by_type[key]
-        
-        # Calcular ratios de conversión
+                funnel_totals[key] += conversions_by_type.get(key, 0)
+
+        # Calcular ratios
         ratios = {
             "subscriber_to_mql": calculate_conversion_rate(funnel_totals["subscriber"], funnel_totals["mql"]),
             "mql_to_sql": calculate_conversion_rate(funnel_totals["mql"], funnel_totals["sql"]),
             "sql_to_customer": calculate_conversion_rate(funnel_totals["sql"], funnel_totals["customer"]),
-            "subscriber_to_customer": calculate_conversion_rate(funnel_totals["subscriber"], funnel_totals["customer"])
+            "subscriber_to_customer": calculate_conversion_rate(funnel_totals["subscriber"], funnel_totals["customer"]),
         }
-        
-        # Calcular CPAs por etapa
-        cpas = {
-            "cpa_subscriber": round(total_spend / funnel_totals["subscriber"], 2) if funnel_totals["subscriber"] > 0 else None,
-            "cpa_mql": round(total_spend / funnel_totals["mql"], 2) if funnel_totals["mql"] > 0 else None,
-            "cpa_sql": round(total_spend / funnel_totals["sql"], 2) if funnel_totals["sql"] > 0 else None,
-            "cpa_customer": round(total_spend / funnel_totals["customer"], 2) if funnel_totals["customer"] > 0 else None,
-        }
-        
-        # Análisis cualitativo
+
+        # Calcular CPAs
+        cpas = {}
+        for conv_type in ["subscriber", "mql", "sql", "customer"]:
+            count = funnel_totals[conv_type]
+            cpas[conv_type] = round(total_spend / count, 2) if count > 0 else None
+            
+        # Análisis rápido
         analisis = []
-        
-        if ratios["mql_to_sql"] < 30:
-            analisis.append(f"⚠️ Ratio MQL→SQL bajo ({ratios['mql_to_sql']}%). Objetivo: >30%")
-        elif ratios["mql_to_sql"] >= 50:
-            analisis.append(f"✅ Excelente ratio MQL→SQL ({ratios['mql_to_sql']}%)")
-        
-        if ratios["sql_to_customer"] < 20:
-            analisis.append(f"⚠️ Ratio SQL→Customer bajo ({ratios['sql_to_customer']}%). Objetivo: >20%")
-        elif ratios["sql_to_customer"] >= 40:
-            analisis.append(f"✅ Excelente ratio SQL→Customer ({ratios['sql_to_customer']}%)")
-        
+        if funnel_totals["subscriber"] == 0:
+            analisis.append("🚨 No hay Subscribers (leads iniciales) registrados. Verifica tracking de eventos.")
         if funnel_totals["mql"] == 0:
             analisis.append("🚨 No hay MQLs registrados. Verifica tracking de eventos.")
-        
         if funnel_totals["sql"] == 0:
             analisis.append("🚨 No hay SQLs registrados. Verifica tracking de eventos.")
         
@@ -1704,6 +1679,6 @@ def obtener_funnel_conversiones_func(input: ObtenerFunnelConversionesInput) -> O
         return ObtenerFunnelConversionesOutput(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:
-        logger.error(f"❌ Error analizando funnel: {e}")
+        logger.error(f"❌ Error obteniendo funnel de conversiones: {e}")
         return ObtenerFunnelConversionesOutput(datos_json=json.dumps({"error": str(e)}))
 
