@@ -124,7 +124,7 @@ def call_config_llm(state: ConfigAgentState):
         messages = [SystemMessage(content=CONFIG_AGENT_INSTRUCTION)] + messages
     
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash",
         temperature=0.0,
         google_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     )
