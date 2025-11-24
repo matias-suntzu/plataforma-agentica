@@ -24,7 +24,7 @@ from ...utils.destination_classifier import (
       get_top_destinations
   )
 
-from typing import List
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -560,7 +560,7 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         insights = campaign.get_insights(fields=fields, params=params)
         
         if not insights:
-            return "ObtenerAnunciosPorRendimientoOutput"(
+            return ObtenerAnunciosPorRendimientoOutput(
                 datos_json=json.dumps({
                     "error": f"No hay datos de anuncios para campaña {input.campana_id}"
                 })
