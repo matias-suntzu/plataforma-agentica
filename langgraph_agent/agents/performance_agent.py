@@ -244,7 +244,7 @@ def call_performance_llm(state: PerformanceAgentState):
         messages = [SystemMessage(content=PERFORMANCE_AGENT_INSTRUCTION)] + messages
     
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.6-flash",
+        model="gemini-2.5-flash",
         temperature=0.0,
         google_api_key=os.getenv("GEMINI_API_KEY")
     )
