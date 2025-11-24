@@ -533,13 +533,17 @@ async def status():
         },
         "version": "5.0-recommendations"
     }
+    
+# ============================================
+# 🆕 ENDPOINTS PARA LANGSMITH STUDIO
+# ============================================
 
 @api.get("/info")
 async def get_info():
     """Información del servidor para LangSmith Studio"""
     return {
         "type": "langgraph",
-        "version": "5.1-context",
+        "version": "5.1.0",  # ✅ Formato correcto: major.minor.patch
         "name": "Meta Ads Agent API V5"
     }
 
@@ -555,12 +559,8 @@ async def search_assistants():
             {
                 "assistant_id": "meta-ads-orchestrator",
                 "name": "Meta Ads Orchestrator V5",
-                "description": "Agente multi-especialista con 4 agentes (Config, Performance, Recommendation, Multi-Agent)",
-                "config": {
-                    "configurable": {
-                        "thread_id": "default"
-                    }
-                }
+                "description": "Agente multi-especialista con 4 agentes",
+                "config": {}
             }
         ]
     }
@@ -569,15 +569,139 @@ async def search_assistants():
 @api.get("/assistants/{assistant_id}")
 async def get_assistant(assistant_id: str):
     """Obtener detalles de un assistant"""
-    if assistant_id != "meta-ads-orchestrator":
-        raise HTTPException(status_code=404, detail="Assistant no encontrado")
-    
     return {
-        "assistant_id": "meta-ads-orchestrator",
+        "assistant_id": assistant_id,
         "name": "Meta Ads Orchestrator V5",
-        "description": "Agente multi-especialista",
-        "created_at": datetime.utcnow().isoformat()
+        "description": "Agente multi-especialista con 4 agentes",
+        "created_at": datetime.utcnow().isoformat(),
+        "config": {}
     }
+
+@api.get("/assistants/{assistant_id}/schemas")
+async def get_assistant_schemas(assistant_id: str):
+    """Esquemas del assistant para Studio"""
+    return {
+        "input": {
+            "title": "Input",
+            "type": "object",
+            "properties": {
+                "query": {
+                    "title": "Query",
+                    "type": "string"
+                }
+            },
+            "required": ["query"]
+        },
+        "output": {
+            "title": "Output",
+            "type": "object",
+            "properties": {
+                "response": {
+                    "title": "Response",
+                    "type": "string"
+                },
+                "workflow_type": {
+                    "title": "Workflow Type",
+                    "type": "string"
+                }
+            }
+        }
+    }
+
+@api.get("/assistants/{assistant_id}/graph")
+async def get_assistant_graph(assistant_id: str, xray: bool = False):
+    """Grafo compatible con LangSmith Studio"""
+    return {
+        "nodes": [
+            {
+                "id": "orchestrator",
+                "type": "tool",
+                "metadata": {
+                    "title": "Meta Ads Orchestrator V5",
+                    "description": "Procesa queries con 4 agentes especializados"
+                }
+            }
+        ],
+        "edges": [
+            {
+                "source": "input",
+                "target": "orchestrator"
+            },
+            {
+                "source": "orchestrator",
+                "target": "output"
+            }
+        ],
+        "input": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
+        },
+        "output": {
+            "type": "object",
+            "properties": {
+                "response": {"type": "string"},
+                "workflow_type": {"type": "string"}
+            }
+        },
+        "config": {
+            "configurable": {}
+        }
+    }
+
+@api.get("/assistants/{assistant_id}/subgraphs")
+async def get_assistant_subgraphs(assistant_id: str, recurse: bool = False):
+    """Subgrafos compatibles con LangSmith Studio"""
+    
+    dummy_graph = {
+        "nodes": [
+            {
+                "id": "node",
+                "type": "tool",
+                "metadata": {
+                    "title": "Placeholder Node",
+                    "description": "Nodo genérico requerido por Studio"
+                }
+            }
+        ],
+        "edges": []
+    }
+
+    return {
+        "subgraphs": [
+            {
+                "id": "config-agent",
+                "graph": dummy_graph
+            },
+            {
+                "id": "performance-agent",
+                "graph": dummy_graph
+            },
+            {
+                "id": "recommendation-agent",
+                "graph": dummy_graph
+            },
+            {
+                "id": "multi-agent",
+                "graph": dummy_graph
+            }
+        ]
+    }
+
+
+@api.post("/assistants/{assistant_id}/versions")
+async def get_assistant_versions(assistant_id: str):
+    """Obtener versiones del assistant en formato compatible con LangSmith Studio"""
+    return [
+        {
+            "version": "1.0.0",
+            "name": "Default Version",
+            "assistant_id": assistant_id,
+            "created_at": datetime.utcnow().isoformat()
+        }
+    ]
 
 
 @api.post("/threads")
@@ -589,21 +713,64 @@ async def create_thread():
         "created_at": datetime.utcnow().isoformat()
     }
 
+@api.get("/threads/{thread_id}")
+async def get_thread(thread_id: str):
+    """Obtener información de un thread"""
+    return {
+        "thread_id": thread_id,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+@api.post("/threads/{thread_id}/history")
+async def get_thread_history(thread_id: str):
+    """Obtener historial de un thread para Studio"""
+    messages = get_thread_messages(thread_id)
+    
+    return [
+        {
+            "type": "human" if isinstance(m, HumanMessage) else "ai",
+            "content": m.content
+        }
+        for m in messages
+    ]
+
+@api.get("/threads/{thread_id}/runs")
+async def list_thread_runs(
+    thread_id: str,
+    limit: int = 1000,
+    offset: int = 0,
+    status: Optional[str] = None
+):
+    """Listar runs de un thread"""
+    # Retorna lista vacía o runs simulados
+    return {
+        "runs": [],
+        "total": 0
+    }
 
 @api.post("/threads/{thread_id}/runs")
-async def run_assistant(thread_id: str, request: dict):
-    """Ejecutar el assistant en un thread"""
+async def create_thread_run(thread_id: str, request_data: dict):
+    """Crear un nuevo run en un thread"""
     if not AGENT_READY or orchestrator_v5 is None:
         raise HTTPException(status_code=503, detail="Agente inicializando")
     
     try:
-        # Obtener query del request
-        user_input = request.get("input", {}).get("query", "")
+        assistant_id = request_data.get("assistant_id", "meta-ads-orchestrator")
+        input_data = request_data.get("input", {})
         
+        # Extraer query
+        if isinstance(input_data, dict):
+            user_input = input_data.get("query", "")
+        else:
+            user_input = str(input_data)
+        
+        user_input = str(user_input).strip()
         if not user_input:
             raise HTTPException(status_code=400, detail="Query requerida")
         
-        # Procesar con tu orchestrator
+        logger.info(f"🎯 New Run - Thread: {thread_id}, Query: '{user_input[:50]}...'")
+        
+        # Procesar
         messages = get_thread_messages(thread_id)
         result = orchestrator_v5.process_query(
             query=user_input,
@@ -611,7 +778,7 @@ async def run_assistant(thread_id: str, request: dict):
             messages=messages
         )
         
-        # Guardar en historial
+        # Guardar
         add_message_to_thread(thread_id, HumanMessage(content=user_input))
         add_message_to_thread(thread_id, AIMessage(content=result.content))
         
@@ -620,6 +787,7 @@ async def run_assistant(thread_id: str, request: dict):
         return {
             "run_id": run_id,
             "thread_id": thread_id,
+            "assistant_id": assistant_id,
             "status": "success",
             "output": {
                 "response": result.content,
@@ -630,13 +798,15 @@ async def run_assistant(thread_id: str, request: dict):
         }
     
     except Exception as e:
-        logger.error(f"Error en run: {e}")
+        logger.error(f"❌ Error en run: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @api.get("/threads/{thread_id}/state")
 async def get_thread_state(thread_id: str):
-    """Obtener estado del thread"""
+    """Obtener estado del thread para Studio"""
     messages = get_thread_messages(thread_id)
     
     return {
@@ -652,3 +822,81 @@ async def get_thread_state(thread_id: str):
         },
         "next": []
     }
+
+@api.get("/graph")
+async def get_graph():
+    """Obtener la definición del grafo compilado para Studio"""
+    # Studio espera la estructura del grafo
+    return {
+        "nodes": [
+            {
+                "id": "orchestrator",
+                "type": "node",
+                "data": {
+                    "title": "Meta Ads Orchestrator V5",
+                    "description": "Procesa queries con 4 agentes especializados"
+                }
+            }
+        ],
+        "edges": [],
+        "config": {
+            "configurable": {}
+        }
+    }
+
+
+@api.post("/runs")
+async def create_run(request_data: dict):
+    """Crear y ejecutar un run (similar a /threads/{thread_id}/runs)"""
+    if not AGENT_READY or orchestrator_v5 is None:
+        raise HTTPException(status_code=503, detail="Agente inicializando")
+    
+    try:
+        thread_id = request_data.get("thread_id") or f"thread_{uuid.uuid4().hex[:12]}"
+        assistant_id = request_data.get("assistant_id", "meta-ads-orchestrator")
+        input_data = request_data.get("input", {})
+        
+        # Extraer query
+        if isinstance(input_data, dict):
+            user_input = input_data.get("query", "")
+        else:
+            user_input = str(input_data)
+        
+        user_input = str(user_input).strip()
+        if not user_input:
+            raise HTTPException(status_code=400, detail="Query requerida")
+        
+        logger.info(f"🎯 New Run - Thread: {thread_id}, Query: '{user_input[:50]}...'")
+        
+        # Procesar
+        messages = get_thread_messages(thread_id)
+        result = orchestrator_v5.process_query(
+            query=user_input,
+            thread_id=thread_id,
+            messages=messages
+        )
+        
+        # Guardar
+        add_message_to_thread(thread_id, HumanMessage(content=user_input))
+        add_message_to_thread(thread_id, AIMessage(content=result.content))
+        
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        
+        return {
+            "run_id": run_id,
+            "thread_id": thread_id,
+            "assistant_id": assistant_id,
+            "status": "success",
+            "output": {
+                "response": result.content,
+                "workflow_type": result.workflow_type,
+                "metadata": result.metadata or {}
+            },
+            "created_at": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ Error en run: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

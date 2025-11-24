@@ -28,6 +28,41 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+# ========== CONFIGURACIÓN DE TIPOS DE CONVERSIÓN ==========
+
+# 🆕 Mapeo de action_type de Meta API a tipos de conversión del funnel
+CONVERSION_TYPE_MAPPING = {
+    # Subscriber (interés inicial)
+    "subscribe": "subscriber",
+    "lead": "subscriber",  # Leads genéricos se consideran subscribers
+    "complete_registration": "subscriber",
+    
+    # MQL (Marketing Qualified Lead)
+    "marketing_qualified_lead": "mql",
+    "mql": "mql",
+    
+    # SQL (Sales Qualified Lead)
+    "sales_qualified_lead": "sql",
+    "sql": "sql",
+    
+    # Customer (conversión final)
+    "purchase": "customer",
+    "add_payment_info": "customer",
+    "initiate_checkout": "customer",
+    
+    # Otros eventos de conversión
+    "add_to_cart": "engagement",
+    "view_content": "engagement",
+}
+
+# 🆕 Eventos de conversión de interés (para filtrar)
+CONVERSION_EVENTS = [
+    'subscribe', 'lead', 'complete_registration',
+    'marketing_qualified_lead', 'mql',
+    'sales_qualified_lead', 'sql',
+    'purchase', 'add_payment_info', 'initiate_checkout'
+]
+
 
 # ========== SCHEMAS ==========
 
@@ -45,15 +80,15 @@ class ObtenerMetricasCampanaOutput(BaseModel):
 
 
 class ObtenerAnunciosPorRendimientoInput(BaseModel):
-    """Obtiene TOP N anuncios de una campaña"""
+    """Obtiene TOP N anuncios de una campaña ordenados por métrica específica"""
     campana_id: str = Field(description="ID de la campaña")
     date_preset: str = Field(default="last_7d", description="Período")
     date_start: str = Field(default=None, description="Fecha inicio")
     date_end: str = Field(default=None, description="Fecha fin")
     limite: int = Field(default=3, description="TOP N anuncios")
     ordenar_por: str = Field(
-        default="clicks",
-        description="Métrica para ordenar: clicks, ctr, cpa, conversiones, impressions"
+        default="clicks", 
+        description="Métrica: clicks, ctr, cpa, conversiones, impressions, cpc, spend, subscriber, mql, sql"
     )
 
 
@@ -132,16 +167,18 @@ class CompararDestinosOutput(BaseModel):
     """Salida con comparación de destinos"""
     datos_json: str
 
-class ObtenerMetricasAnuncioInput(BaseModel):
-    """Obtiene métricas de rendimiento de UN anuncio específico"""
-    anuncio_id: str = Field(description="ID del anuncio")
+class ObtenerMetricasCampanaInput(BaseModel):
+    """Obtiene métricas de rendimiento de una campaña"""
+    campana_id: str = Field(description="ID de la campaña")
     date_preset: str = Field(default="last_7d", description="Período: last_7d, last_month, etc.")
     date_start: str = Field(default=None, description="Fecha inicio personalizada (YYYY-MM-DD)")
     date_end: str = Field(default=None, description="Fecha fin personalizada (YYYY-MM-DD)")
+    incluir_funnel: bool = Field(default=True, description="🆕 Incluir métricas del funnel (Subscriber/MQL/SQL)")
 
 
-class ObtenerMetricasAnuncioOutput(BaseModel):
-    """Salida con métricas del anuncio"""
+
+class ObtenerMetricasCampanaOutput(BaseModel):
+    """Salida con métricas completas"""
     datos_json: str
 
 class CompararAnunciosInput(BaseModel):
@@ -165,6 +202,19 @@ class CompararAnunciosGlobalesInput(BaseModel):
 
 class CompararAnunciosGlobalesOutput(BaseModel):
     """Salida con comparación global de anuncios"""
+    datos_json: str
+
+# 🆕 NUEVO SCHEMA: Análisis del Funnel de Conversiones
+class ObtenerFunnelConversionesInput(BaseModel):
+    """Analiza el funnel completo de conversiones (Subscriber → MQL → SQL → Customer)"""
+    campana_id: str = Field(default=None, description="ID de la campaña (None = todas)")
+    date_preset: str = Field(default="last_7d", description="Período")
+    date_start: str = Field(default=None, description="Fecha inicio")
+    date_end: str = Field(default=None, description="Fecha fin")
+
+
+class ObtenerFunnelConversionesOutput(BaseModel):
+    """Salida con análisis del funnel"""
     datos_json: str
 
 # ========== MAPEO DE DATE PRESETS ==========
@@ -218,13 +268,113 @@ def normalize_date_preset(date_preset: str) -> str:
     logger.warning(f"⚠️ date_preset inválido: '{date_preset}'. Usando 'last_7d'")
     return "last_7d"
 
+def categorize_conversion(action_type: str) -> str:
+    """
+    Categoriza un action_type en su tipo de conversión del funnel.
+    
+    Args:
+        action_type: Tipo de acción de Meta API (ej: 'subscribe', 'mql', 'purchase')
+        
+    Returns:
+        Categoría: 'subscriber', 'mql', 'sql', 'customer', 'engagement', 'other'
+    """
+    # Buscar en mapeo
+    for key, category in CONVERSION_TYPE_MAPPING.items():
+        if key in action_type.lower():
+            return category
+    
+    # Por defecto, categorizar según palabras clave
+    action_lower = action_type.lower()
+    
+    if any(kw in action_lower for kw in ['subscribe', 'lead', 'registration']):
+        return 'subscriber'
+    elif 'mql' in action_lower or 'marketing' in action_lower:
+        return 'mql'
+    elif 'sql' in action_lower or 'sales' in action_lower:
+        return 'sql'
+    elif any(kw in action_lower for kw in ['purchase', 'payment', 'checkout']):
+        return 'customer'
+    else:
+        return 'other'
+
+
+def extract_conversion_metrics(insight: dict) -> Dict[str, int]:
+    """
+    Extrae métricas de conversión organizadas por tipo (Subscriber/MQL/SQL/Customer).
+    
+    Args:
+        insight: Insight de Meta API con campo 'actions'
+        
+    Returns:
+        Dict con conversiones por tipo y detalle
+        {
+            "subscriber": 15,
+            "mql": 8,
+            "sql": 3,
+            "customer": 2,
+            "total": 28,
+            "detail": {"subscribe": 10, "lead": 5, ...}
+        }
+    """
+    conversions = {
+        "subscriber": 0,
+        "mql": 0,
+        "sql": 0,
+        "customer": 0,
+        "engagement": 0,
+        "other": 0,
+        "total": 0,
+        "detail": {}
+    }
+    
+    actions = insight.get('actions', [])
+    
+    for action in actions:
+        action_type = action.get('action_type', '')
+        value = int(action.get('value', 0))
+        
+        # Guardar detalle
+        conversions["detail"][action_type] = value
+        
+        # Categorizar
+        category = categorize_conversion(action_type)
+        conversions[category] += value
+        conversions["total"] += value
+    
+    return conversions
+
+
+def calculate_conversion_rate(conversions_from: int, conversions_to: int) -> float:
+    """
+    Calcula ratio de conversión entre dos etapas del funnel.
+    
+    Args:
+        conversions_from: Conversiones en etapa origen
+        conversions_to: Conversiones en etapa destino
+        
+    Returns:
+        Porcentaje de conversión (0-100)
+    """
+    if conversions_from == 0:
+        return 0.0
+    return round((conversions_to / conversions_from) * 100, 2)
+
 # ========== FUNCIONES ==========
 
 def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> ObtenerMetricasCampanaOutput:
-    """Obtiene métricas de rendimiento de UNA campaña específica"""
+    """
+    🆕 ACTUALIZADO: Obtiene métricas de rendimiento de UNA campaña específica.
+    
+    Ahora incluye:
+    - Métricas tradicionales (gasto, clicks, CTR, etc.)
+    - 🆕 Conversiones por tipo (Subscriber, MQL, SQL, Customer)
+    - 🆕 Ratios de conversión entre etapas del funnel
+    - 🆕 CPA por tipo de conversión
+    """
     try:
         campaign = Campaign(input.campana_id)
         
+        from ..tools.performance.performance_tools import normalize_date_preset
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
         use_custom = bool(input.date_start and input.date_end)
@@ -259,53 +409,113 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
                 })
             )
         
+        # Agregar métricas tradicionales
         total_spend = 0.0
         total_impressions = 0
         total_clicks = 0
-        conversiones_por_tipo = {}
         valor_conversion_total = 0.0
+        
+        # 🆕 Nuevas métricas del funnel
+        funnel_conversions = {
+            "subscriber": 0,
+            "mql": 0,
+            "sql": 0,
+            "customer": 0,
+            "engagement": 0,
+            "other": 0,
+            "total": 0,
+            "detail": {}
+        }
         
         for insight in insights:
             total_spend += float(insight.get('spend', 0))
             total_impressions += int(insight.get('impressions', 0))
             total_clicks += int(insight.get('clicks', 0))
             
-            for action in insight.get('actions', []):
-                action_type = action.get('action_type')
-                value = int(action.get('value', 0))
-                conversiones_por_tipo[action_type] = conversiones_por_tipo.get(action_type, 0) + value
+            # 🆕 Extraer conversiones por tipo
+            conversions_by_type = extract_conversion_metrics(insight)
             
+            for key in ["subscriber", "mql", "sql", "customer", "engagement", "other", "total"]:
+                funnel_conversions[key] += conversions_by_type[key]
+            
+            for action_type, value in conversions_by_type["detail"].items():
+                funnel_conversions["detail"][action_type] = funnel_conversions["detail"].get(action_type, 0) + value
+            
+            # Valor de conversiones
             for cv in insight.get('conversion_values', []):
                 valor_conversion_total += float(cv.get('value', 0))
         
-        total_conversiones = sum(conversiones_por_tipo.values())
+        # Calcular métricas derivadas
+        total_conversiones = funnel_conversions["total"]
         ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
         cpm = (total_spend / total_impressions * 1000) if total_impressions > 0 else 0
         cpc = (total_spend / total_clicks) if total_clicks > 0 else 0
         cpa = (total_spend / total_conversiones) if total_conversiones > 0 else 0
         ratio_conversion = (total_conversiones / total_clicks * 100) if total_clicks > 0 else 0
-        valor_por_coste = (valor_conversion_total / total_spend) if total_spend > 0 else 0
+        
+        # 🆕 Calcular CPA por tipo de conversión
+        cpa_por_tipo = {}
+        for conv_type in ["subscriber", "mql", "sql", "customer"]:
+            count = funnel_conversions[conv_type]
+            cpa_por_tipo[conv_type] = round(total_spend / count, 2) if count > 0 else None
+        
+        # 🆕 Calcular ratios de conversión del funnel
+        funnel_ratios = {
+            "subscriber_to_mql": calculate_conversion_rate(
+                funnel_conversions["subscriber"], 
+                funnel_conversions["mql"]
+            ),
+            "mql_to_sql": calculate_conversion_rate(
+                funnel_conversions["mql"], 
+                funnel_conversions["sql"]
+            ),
+            "sql_to_customer": calculate_conversion_rate(
+                funnel_conversions["sql"], 
+                funnel_conversions["customer"]
+            ),
+            "subscriber_to_customer": calculate_conversion_rate(
+                funnel_conversions["subscriber"], 
+                funnel_conversions["customer"]
+            )
+        }
         
         output = {
             "campaign_id": input.campana_id,
             "periodo": periodo_str,
-            "metricas": {
+            "metricas_basicas": {
                 "gasto_total_eur": round(total_spend, 2),
                 "impresiones": total_impressions,
                 "clicks": total_clicks,
                 "ctr_porcentaje": round(ctr, 2),
                 "cpm_eur": round(cpm, 2),
                 "cpc_eur": round(cpc, 2),
-                "conversiones_total": total_conversiones,
-                "conversiones_por_tipo": conversiones_por_tipo,
-                "cpa_eur": round(cpa, 2),
+            },
+            # 🆕 Métricas del funnel de conversiones
+            "conversiones_funnel": {
+                "subscriber": funnel_conversions["subscriber"],
+                "mql": funnel_conversions["mql"],
+                "sql": funnel_conversions["sql"],
+                "customer": funnel_conversions["customer"],
+                "total": total_conversiones,
+            },
+            "cpa_por_tipo": cpa_por_tipo,
+            "ratios_funnel": funnel_ratios,
+            "metricas_avanzadas": {
+                "cpa_global_eur": round(cpa, 2),
                 "ratio_conversion_porcentaje": round(ratio_conversion, 2),
                 "valor_conversion_total_eur": round(valor_conversion_total, 2),
-                "valor_por_coste_ratio": round(valor_por_coste, 2)
-            }
+            },
+            # Detalle completo de conversiones (para debugging)
+            "conversiones_detalle": funnel_conversions["detail"] if input.incluir_funnel else None
         }
         
-        logger.info(f"✅ Métricas de campaña {input.campana_id}: {total_spend}€, {total_conversiones} conversiones")
+        logger.info(
+            f"✅ Métricas de campaña {input.campana_id}: "
+            f"{total_spend}€, {total_conversiones} conversiones "
+            f"(Subs: {funnel_conversions['subscriber']}, MQL: {funnel_conversions['mql']}, "
+            f"SQL: {funnel_conversions['sql']}, Customers: {funnel_conversions['customer']})"
+        )
+        
         return ObtenerMetricasCampanaOutput(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:
@@ -313,26 +523,20 @@ def obtener_metricas_campana_func(input: ObtenerMetricasCampanaInput) -> Obtener
         return ObtenerMetricasCampanaOutput(datos_json=json.dumps({"error": str(e)}))
 
 
-def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> ObtenerAnunciosPorRendimientoOutput:
+def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoInput) -> "ObtenerAnunciosPorRendimientoOutput":
     """
-    Obtiene TOP N anuncios de una campaña ordenados por la métrica especificada.
+    🆕 ACTUALIZADO: Obtiene TOP N anuncios ordenados por métrica FLEXIBLE.
     
-    Métricas soportadas:
-    - clicks: Más clicks (default)
-    - ctr: Mejor CTR
-    - cpa: Mejor CPA (menor = mejor)
-    - conversiones: Más conversiones
-    - impressions: Más impresiones
-    
-    Returns:
-        Lista de anuncios con métricas completas
+    Ahora soporta ordenar por:
+    - Métricas tradicionales: clicks, ctr, cpa, conversiones, impressions, cpc, spend
+    - 🆕 Tipos de conversión: subscriber, mql, sql, customer
     """
     try:
         campaign = Campaign(input.campana_id)
         
+        from ..tools.performance.performance_tools import normalize_date_preset
         date_preset_normalized = normalize_date_preset(input.date_preset)
 
-        # Configurar período
         use_custom = bool(input.date_start and input.date_end)
         params = {'level': 'ad'}
         
@@ -341,7 +545,6 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         else:
             params['date_preset'] = date_preset_normalized
         
-        # Campos de insights
         fields = [
             AdsInsights.Field.ad_id,
             AdsInsights.Field.ad_name,
@@ -357,27 +560,29 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
         insights = campaign.get_insights(fields=fields, params=params)
         
         if not insights:
-            return ObtenerAnunciosPorRendimientoOutput(
+            return "ObtenerAnunciosPorRendimientoOutput"(
                 datos_json=json.dumps({
-                    "error": f"No hay datos de anuncios para campaña {input.campana_id}",
-                    "campana_id": input.campana_id,
-                    "periodo": input.date_preset
+                    "error": f"No hay datos de anuncios para campaña {input.campana_id}"
                 })
             )
         
-        # Procesar anuncios
         anuncios = []
         for insight in insights:
-            conversiones = 0
-            for action in insight.get('actions', []):
-                if action.get('action_type') in ['purchase', 'lead', 'complete_registration']:
-                    conversiones += int(action.get('value', 0))
+            # 🆕 Extraer conversiones por tipo
+            conversions_by_type = extract_conversion_metrics(insight)
             
             spend = float(insight.get('spend', 0))
             clicks = int(insight.get('clicks', 0))
             impressions = int(insight.get('impressions', 0))
             ctr = float(insight.get('ctr', 0))
-            cpa = (spend / conversiones) if conversiones > 0 else float('inf')
+            cpc = float(insight.get('cpc', 0))
+            
+            # Calcular CPAs por tipo
+            cpa_subscriber = (spend / conversions_by_type["subscriber"]) if conversions_by_type["subscriber"] > 0 else float('inf')
+            cpa_mql = (spend / conversions_by_type["mql"]) if conversions_by_type["mql"] > 0 else float('inf')
+            cpa_sql = (spend / conversions_by_type["sql"]) if conversions_by_type["sql"] > 0 else float('inf')
+            cpa_customer = (spend / conversions_by_type["customer"]) if conversions_by_type["customer"] > 0 else float('inf')
+            cpa_total = (spend / conversions_by_type["total"]) if conversions_by_type["total"] > 0 else float('inf')
             
             anuncios.append({
                 "ad_id": insight.get('ad_id'),
@@ -387,26 +592,49 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
                 "clicks": clicks,
                 "ctr": round(ctr, 2),
                 "cpm": round(float(insight.get('cpm', 0)), 2),
-                "cpc": round(float(insight.get('cpc', 0)), 2),
-                "conversiones": conversiones,
-                "cpa": round(cpa, 2) if cpa != float('inf') else None
+                "cpc": round(cpc, 2),
+                # 🆕 Conversiones por tipo
+                "conversiones_subscriber": conversions_by_type["subscriber"],
+                "conversiones_mql": conversions_by_type["mql"],
+                "conversiones_sql": conversions_by_type["sql"],
+                "conversiones_customer": conversions_by_type["customer"],
+                "conversiones_total": conversions_by_type["total"],
+                # 🆕 CPAs por tipo
+                "cpa_subscriber": round(cpa_subscriber, 2) if cpa_subscriber != float('inf') else None,
+                "cpa_mql": round(cpa_mql, 2) if cpa_mql != float('inf') else None,
+                "cpa_sql": round(cpa_sql, 2) if cpa_sql != float('inf') else None,
+                "cpa_customer": round(cpa_customer, 2) if cpa_customer != float('inf') else None,
+                "cpa_total": round(cpa_total, 2) if cpa_total != float('inf') else None,
             })
         
-        # 🔥 NUEVA LÓGICA DE ORDENAMIENTO
-        if input.ordenar_por == "ctr":
-            anuncios.sort(key=lambda x: x['ctr'], reverse=True)
-        elif input.ordenar_por == "cpa":
-            # Para CPA: menor es mejor, pero None va al final
-            anuncios.sort(key=lambda x: (x['cpa'] is None, x['cpa'] or float('inf')))
-        elif input.ordenar_por == "conversiones":
-            anuncios.sort(key=lambda x: x['conversiones'], reverse=True)
-        elif input.ordenar_por == "impressions":
-            anuncios.sort(key=lambda x: x['impressions'], reverse=True)
-        else:  # clicks (default)
-            anuncios.sort(key=lambda x: x['clicks'], reverse=True)
+        # 🔥 LÓGICA DE ORDENAMIENTO FLEXIBLE (actualizada con nuevos tipos)
+        metrica_key_map = {
+            "clicks": ("clicks", True),
+            "ctr": ("ctr", True),
+            "conversiones": ("conversiones_total", True),
+            "impressions": ("impressions", True),
+            "spend": ("spend_eur", False),
+            "cpa": ("cpa_total", False),
+            "cpc": ("cpc", False),
+            # 🆕 Nuevos ordenamientos por tipo de conversión
+            "subscriber": ("conversiones_subscriber", True),
+            "mql": ("conversiones_mql", True),
+            "sql": ("conversiones_sql", True),
+            "customer": ("conversiones_customer", True),
+        }
         
-        # Limitar resultados
-        top_anuncios = anuncios[:input.limite]
+        sort_key, reverse_order = metrica_key_map.get(
+            input.ordenar_por.lower(), 
+            ("clicks", True)
+        )
+        
+        def safe_sort_key(x):
+            val = x.get(sort_key)
+            if val is None or val == float('inf'):
+                return float('-inf') if reverse_order else float('inf')
+            return val
+        
+        top_anuncios = sorted(anuncios, key=safe_sort_key, reverse=reverse_order)[:input.limite]
         
         output = {
             "campaign_id": input.campana_id,
@@ -415,12 +643,12 @@ def obtener_anuncios_por_rendimiento_func(input: ObtenerAnunciosPorRendimientoIn
             "anuncios": top_anuncios
         }
         
-        logger.info(f"✅ TOP {len(top_anuncios)} anuncios ordenados por {input.ordenar_por}")
-        return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps(output, ensure_ascii=False))
+        logger.info(f"✅ TOP {len(top_anuncios)} anuncios de campaña {input.campana_id} (ordenado por {input.ordenar_por})")
+        return "ObtenerAnunciosPorRendimientoOutput"(datos_json=json.dumps(output, ensure_ascii=False))
     
     except Exception as e:
         logger.error(f"❌ Error obteniendo anuncios: {e}")
-        return ObtenerAnunciosPorRendimientoOutput(datos_json=json.dumps({"error": str(e)}))
+        return "ObtenerAnunciosPorRendimientoOutput"(datos_json=json.dumps({"error": str(e)}))
 
 
 def comparar_periodos_func(input: CompararPeriodosInput) -> CompararPeriodosOutput:
@@ -1349,4 +1577,132 @@ def comparar_anuncios_globales_func(input: CompararAnunciosGlobalesInput) -> Com
     except Exception as e:
         logger.error(f"❌ Error en comparación global: {e}")
         return CompararAnunciosGlobalesOutput(datos_json=json.dumps({"error": str(e)}))
+
+# 🆕 NUEVA FUNCIÓN: Análisis completo del funnel de conversiones
+def obtener_funnel_conversiones_func(input: ObtenerFunnelConversionesInput) -> ObtenerFunnelConversionesOutput:
+    """
+    🆕 NUEVO: Analiza el funnel completo de conversiones (Subscriber → MQL → SQL → Customer).
+    
+    Responde queries como:
+    - "¿Cómo está mi funnel de conversiones?"
+    - "Ratio de MQL a SQL de Baqueira"
+    - "¿Cuántos subscribers se convirtieron en customers?"
+    
+    Returns:
+        Análisis del funnel con ratios de conversión entre etapas
+    """
+    try:
+        from ..tools.performance.performance_tools import normalize_date_preset
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+        
+        # Configurar período
+        use_custom = bool(input.date_start and input.date_end)
+        params = {'level': 'campaign' if input.campana_id else 'account'}
+        
+        if use_custom:
+            params['time_range'] = {'since': input.date_start, 'until': input.date_end}
+            periodo_str = f"{input.date_start} a {input.date_end}"
+        else:
+            params['date_preset'] = date_preset_normalized
+            periodo_str = date_preset_normalized
+        
+        fields = [
+            AdsInsights.Field.campaign_id,
+            AdsInsights.Field.campaign_name,
+            AdsInsights.Field.spend,
+            AdsInsights.Field.actions,
+        ]
+        
+        # Obtener insights
+        if input.campana_id:
+            campaign = Campaign(input.campana_id)
+            insights = campaign.get_insights(fields=fields, params=params)
+        else:
+            account = get_account()
+            insights = account.get_insights(fields=fields, params=params)
+        
+        # Agregar conversiones por tipo
+        total_spend = 0.0
+        funnel_totals = {
+            "subscriber": 0,
+            "mql": 0,
+            "sql": 0,
+            "customer": 0,
+            "total": 0
+        }
+        
+        for insight in insights:
+            total_spend += float(insight.get('spend', 0))
+            conversions_by_type = extract_conversion_metrics(insight)
+            
+            for key in ["subscriber", "mql", "sql", "customer", "total"]:
+                funnel_totals[key] += conversions_by_type[key]
+        
+        # Calcular ratios de conversión
+        ratios = {
+            "subscriber_to_mql": calculate_conversion_rate(funnel_totals["subscriber"], funnel_totals["mql"]),
+            "mql_to_sql": calculate_conversion_rate(funnel_totals["mql"], funnel_totals["sql"]),
+            "sql_to_customer": calculate_conversion_rate(funnel_totals["sql"], funnel_totals["customer"]),
+            "subscriber_to_customer": calculate_conversion_rate(funnel_totals["subscriber"], funnel_totals["customer"])
+        }
+        
+        # Calcular CPAs por etapa
+        cpas = {
+            "cpa_subscriber": round(total_spend / funnel_totals["subscriber"], 2) if funnel_totals["subscriber"] > 0 else None,
+            "cpa_mql": round(total_spend / funnel_totals["mql"], 2) if funnel_totals["mql"] > 0 else None,
+            "cpa_sql": round(total_spend / funnel_totals["sql"], 2) if funnel_totals["sql"] > 0 else None,
+            "cpa_customer": round(total_spend / funnel_totals["customer"], 2) if funnel_totals["customer"] > 0 else None,
+        }
+        
+        # Análisis cualitativo
+        analisis = []
+        
+        if ratios["mql_to_sql"] < 30:
+            analisis.append(f"⚠️ Ratio MQL→SQL bajo ({ratios['mql_to_sql']}%). Objetivo: >30%")
+        elif ratios["mql_to_sql"] >= 50:
+            analisis.append(f"✅ Excelente ratio MQL→SQL ({ratios['mql_to_sql']}%)")
+        
+        if ratios["sql_to_customer"] < 20:
+            analisis.append(f"⚠️ Ratio SQL→Customer bajo ({ratios['sql_to_customer']}%). Objetivo: >20%")
+        elif ratios["sql_to_customer"] >= 40:
+            analisis.append(f"✅ Excelente ratio SQL→Customer ({ratios['sql_to_customer']}%)")
+        
+        if funnel_totals["mql"] == 0:
+            analisis.append("🚨 No hay MQLs registrados. Verifica tracking de eventos.")
+        
+        if funnel_totals["sql"] == 0:
+            analisis.append("🚨 No hay SQLs registrados. Verifica tracking de eventos.")
+        
+        output = {
+            "campaign_id": input.campana_id or "global",
+            "periodo": periodo_str,
+            "gasto_total_eur": round(total_spend, 2),
+            "funnel": {
+                "subscriber": funnel_totals["subscriber"],
+                "mql": funnel_totals["mql"],
+                "sql": funnel_totals["sql"],
+                "customer": funnel_totals["customer"],
+                "total_conversiones": funnel_totals["total"]
+            },
+            "ratios_conversion": ratios,
+            "cpa_por_etapa": cpas,
+            "analisis": analisis,
+            "recomendaciones": [
+                "📊 Ratio MQL→SQL ideal: >30%",
+                "🎯 Ratio SQL→Customer ideal: >20%",
+                "💰 CPA más bajo en etapas tempranas es esperado"
+            ]
+        }
+        
+        logger.info(
+            f"✅ Análisis del funnel: "
+            f"Subs:{funnel_totals['subscriber']} → MQL:{funnel_totals['mql']} → "
+            f"SQL:{funnel_totals['sql']} → Customers:{funnel_totals['customer']}"
+        )
+        
+        return ObtenerFunnelConversionesOutput(datos_json=json.dumps(output, ensure_ascii=False))
+    
+    except Exception as e:
+        logger.error(f"❌ Error analizando funnel: {e}")
+        return ObtenerFunnelConversionesOutput(datos_json=json.dumps({"error": str(e)}))
 

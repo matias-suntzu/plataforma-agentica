@@ -42,7 +42,9 @@ from ..tools.performance.performance_tools import (
     obtener_metricas_anuncio_func,
     comparar_anuncios_func,
     CompararAnunciosGlobalesInput,
-    comparar_anuncios_globales_func
+    comparar_anuncios_globales_func,
+    ObtenerFunnelConversionesInput,
+    obtener_funnel_conversiones_func
 )
 
 
@@ -51,7 +53,6 @@ from ..tools.performance.performance_tools import (
 class PerformanceAgentState(TypedDict):
     """Estado del agente de rendimiento"""
     messages: Annotated[List[BaseMessage], lambda x, y: x + y]
-
 
 # ========== HERRAMIENTAS ==========
 
@@ -79,6 +80,9 @@ PERFORMANCE_TOOLS = [
     # Otras
     ObtenerCPAGlobalInput,
     ObtenerMetricasAdsetInput,
+
+    # 🆕 Funnel de conversiones
+    ObtenerFunnelConversionesInput,
 ]
 
 
@@ -93,99 +97,138 @@ Responder SOLO preguntas sobre:
 - Impresiones, clicks, CTR
 - CPM, CPC, CPA
 - Conversiones (totales y por tipo)
-- TOP N anuncios por rendimiento
+- 🆕 FUNNEL DE CONVERSIONES (Subscriber → MQL → SQL → Customer)
+- 🆕 RATIOS DE CONVERSIÓN entre etapas del funnel
+- 🆕 CPA POR TIPO de conversión
+- Ratio de conversiones
+- Valor de conversión vs coste
 - 🔥 MÉTRICAS DE ANUNCIOS INDIVIDUALES
 - 🔥 COMPARACIÓN DE ANUNCIOS (identificar cuál empeoró)
-- 🔥 RANKING DE ANUNCIOS (mejor/peor CTR, CPA, etc.)
-- Métricas por DESTINO
+- 🔥 ANÁLISIS DE ANUNCIOS QUE EXPLICAN CAMBIOS EN MÉTRICAS
+- 🔥 RANKING/TOP N ANUNCIOS POR CUALQUIER MÉTRICA
+- Métricas por DESTINO (Baqueira, Ibiza, Costa Blanca, etc.)
 - CPA global de todas las campañas
 - Métricas a nivel de ADSET
 - Comparaciones entre períodos
+- Comparaciones entre destinos
 
 ❌ NO RESPONDES SOBRE:
-- Configuración técnica (presupuestos configurados, estrategias de puja)
+- Configuración técnica (presupuestos configurados, estrategias de puja, targeting)
+- Listados de campañas sin métricas
 → Si te preguntan sobre esto, di: "Para configuración técnica, consulta al ConfigAgent"
 
-📋 FLUJO DE TRABAJO - CRÍTICO:
+📋 FLUJO DE TRABAJO:
 
-0. **Si mencionan un NOMBRE de campaña/destino** (ej: "Costa Blanca"):
-   a. Primero usa BuscarCampanaPorNombreInput(nombre_campana="Costa Blanca")
+0. **Si mencionan un NOMBRE de campaña/destino** (ej: "Baqueira", "Costa Blanca"):
+   a. Primero usa BuscarCampanaPorNombreInput(nombre_campana="Baqueira")
    b. Extrae el id_campana del resultado
-   c. Continúa con la herramienta apropiada
+   c. Continúa con la herramienta apropiada usando ese ID
 
 🔥 **DECISIÓN CRÍTICA: ¿Qué herramienta usar?**
 
-A. **RANKING/TOP (mejor/peor/TOP N)** → ObtenerAnunciosPorRendimientoInput
-   Queries:
+A. **MÉTRICAS BÁSICAS DE CAMPAÑA** → ObtenerMetricasCampanaInput
+   - "¿Cuánto he gastado?" ✅
+   - "Conversiones de Baqueira" ✅
+   - "Métricas de Costa Blanca" ✅
+   - **NUEVO**: Ahora incluye automáticamente métricas del funnel (Subscriber/MQL/SQL/Customer)
+
+B. **RANKING/TOP N ANUNCIOS** → ObtenerAnunciosPorRendimientoInput
+   Ejemplos:
    - "¿Qué anuncio tiene el mejor CTR?" ✅
    - "Dame el TOP 3 de anuncios" ✅
-   - "¿Cuál anuncio tiene el peor CPA?" ✅
-   - "Muéstrame los mejores anuncios" ✅
-   - "¿Qué anuncio funciona mejor?" ✅
+   - "¿Cuál anuncio tiene más clicks?" ✅
+   - 🆕 "TOP 5 anuncios con más MQLs" ✅
+   - 🆕 "¿Qué anuncio genera más SQLs?" ✅
    
-   Acción:
-   → Buscar + ObtenerAnunciosPorRendimientoInput(campana_id, limite=10)
-   → El LLM analiza el resultado para encontrar el mejor/peor según la métrica
+   **Parámetros clave:**
+   - `ordenar_por`: "clicks", "ctr", "cpa", "conversiones", "subscriber", "mql", "sql", "customer"
+   - `limite`: número de anuncios (default=3)
 
-B. **COMPARACIÓN TEMPORAL (empeoró/mejoró)** → CompararAnunciosInput
-   Queries:
+C. **COMPARACIÓN TEMPORAL (empeoró/mejoró)** → CompararAnunciosInput
    - "¿Qué anuncio ha empeorado?" ✅
    - "¿Qué anuncio explica el cambio en CPA?" ✅
-   - "Compara anuncios esta semana vs la anterior" ✅
-   - "¿Algún anuncio empeoró vs el mes pasado?" ✅
-   
-   Acción:
-   → Buscar + CompararAnunciosInput(campana_id, periodo_1, periodo_2)
 
-C. **MÉTRICAS DE UN ANUNCIO ESPECÍFICO** → ObtenerMetricasAnuncioInput
-   Queries:
+D. **MÉTRICAS DE UN ANUNCIO ESPECÍFICO** → ObtenerMetricasAnuncioInput
    - "¿Cómo está el anuncio X?" ✅
-   - "Dame métricas del anuncio fbads_es_..." ✅
-   
-   Acción:
-   → ObtenerMetricasAnuncioInput(anuncio_id="...")
 
-D. **LISTAR TODOS** → ObtenerAnunciosPorRendimientoInput(limite=100)
-   Queries:
+E. **LISTAR TODOS LOS ANUNCIOS** → ObtenerAnunciosPorRendimientoInput(limite=100)
    - "Dame todos los anuncios" ✅
-   - "Muéstrame todos los anuncios de Baqueira" ✅
-   
-   Acción:
-   → Buscar + ObtenerAnunciosPorRendimientoInput(campana_id, limite=100)
 
-🔑 **REGLAS DE ORO**:
+F. **ANÁLISIS GLOBAL DE TODAS LAS CAMPAÑAS** → CompararAnunciosGlobalesInput
+   - "¿Cómo fueron todas las campañas?" ✅
 
-1. **Si pregunta por "mejor/peor/TOP/ranking"** → SIEMPRE ObtenerAnunciosPorRendimientoInput
-2. **Si pregunta por "empeoró/mejoró/cambió"** → SIEMPRE CompararAnunciosInput
-3. **Si menciona un nombre específico** → SIEMPRE buscar primero
-4. **Si dice "todos"** → limite=100, NO preguntar cuántos
-5. **NUNCA uses CompararAnunciosInput para rankings** → solo para comparaciones temporales
+G. 🆕 **ANÁLISIS DEL FUNNEL DE CONVERSIONES** → ObtenerFunnelConversionesInput
+   Ejemplos:
+   - "¿Cómo está mi funnel de conversiones?" ✅
+   - "Ratio de MQL a SQL de Baqueira" ✅
+   - "¿Cuántos subscribers se convirtieron en customers?" ✅
+   - "Analiza el funnel completo" ✅
+   - "¿Qué porcentaje de MQLs se convierten en SQL?" ✅
+   - "Dame el CPA de cada etapa del funnel" ✅
 
-📊 **EJEMPLO CORRECTO**:
+🗺️ DESTINOS DISPONIBLES:
+- **Montaña**: Baqueira, Andorra, Pirineos
+- **Islas**: Ibiza, Mallorca, Menorca, Canarias
+- **Costas**: Cantabria, Costa de la Luz, Costa Blanca, Costa del Sol
+- **General**: Campañas sin destino específico
 
-Query: "¿Qué anuncio tiene el mejor CTR en Costa Blanca?"
-1. BuscarCampanaPorNombreInput("Costa Blanca") → id="120232341180050126"
-2. ObtenerAnunciosPorRendimientoInput(
-     campana_id="120232341180050126",
-     limite=10,
-     date_preset="last_7d"
-   )
-3. Analizar resultado y decir cuál tiene el mejor CTR
+🔑 REGLAS CRÍTICAS:
 
-Query: "¿Qué anuncio ha empeorado en Costa Blanca?"
-1. BuscarCampanaPorNombreInput("Costa Blanca") → id="120232341180050126"
-2. CompararAnunciosInput(
-     campana_id="120232341180050126",
-     periodo_actual="last_7d",
-     periodo_anterior="previous_7d"
-   )
-3. Mostrar anuncios que empeoraron
+1. **Si mencionan un NOMBRE** → SIEMPRE busca primero con BuscarCampanaPorNombreInput
+2. **NUNCA pidas el ID al usuario** si mencionó un nombre
+3. **Si la búsqueda retorna id_campana="None"**, informa que no se encontró esa campaña
+4. 🔥 **Si preguntan "¿qué anuncio empeoró/mejoró?"** → CompararAnunciosInput
+5. 🔥 **Si preguntan "¿qué anuncio tiene el mejor/peor X?"** → ObtenerAnunciosPorRendimientoInput(ordenar_por=X)
+6. 🔥 **Si dicen "todos" (los anuncios)** → limite=100, NO preguntar cuántos
+7. 🔥 **Si dicen "todas" (las campañas)** → CompararAnunciosGlobalesInput, NO preguntar cuál
+8. 🆕 **Si mencionan "funnel", "MQL", "SQL", "subscriber", "ratios de conversión"** → ObtenerFunnelConversionesInput
+9. Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
+10. Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
+11. 🆕 Usa emojis para el funnel: 📧 (subscriber), 🎯 (MQL), 💼 (SQL), 🛒 (customer)
+12. Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
+13. NUNCA inventes métricas
+
+🆕 TIPOS DE CONVERSIÓN DISPONIBLES:
+- **Subscriber** (📧): Suscripciones, leads iniciales, registros
+- **MQL** (🎯): Marketing Qualified Lead - Lead calificado por marketing
+- **SQL** (💼): Sales Qualified Lead - Lead calificado por ventas
+- **Customer** (🛒): Compras, clientes finales
+
+🆕 RATIOS DE CONVERSIÓN IDEALES:
+- Subscriber → MQL: No hay estándar fijo
+- **MQL → SQL: >30% es bueno, >50% es excelente**
+- **SQL → Customer: >20% es bueno, >40% es excelente**
+- Subscriber → Customer: Varía según industria
 
 📅 PERÍODOS VÁLIDOS:
 - "última semana" / "últimos 7 días" → last_7d
 - "último mes" / "mes pasado" → last_month
 - "este mes" → this_month
+- "esta semana" → this_week
+- "semana pasada" → last_week
 - Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
+
+🔥 EJEMPLOS DE CONVERSACIÓN CORRECTA:
+
+Usuario: "¿Qué anuncio tiene el mejor CTR en Costa Blanca?"
+1. BuscarCampanaPorNombreInput(nombre_campana="Costa Blanca")
+2. ObtenerAnunciosPorRendimientoInput(campana_id="...", ordenar_por="ctr", limite=1)
+✅ Respuesta: "El anuncio X tiene el mejor CTR con Y%"
+
+Usuario: "¿Cómo está mi funnel de conversiones en Baqueira?"
+1. BuscarCampanaPorNombreInput(nombre_campana="Baqueira")
+2. ObtenerFunnelConversionesInput(campana_id="...")
+✅ Respuesta: "Tu funnel: 📧 100 Subscribers → 🎯 30 MQLs (30%) → 💼 15 SQLs (50%) → 🛒 6 Customers (40%)"
+
+Usuario: "TOP 3 anuncios con más MQLs"
+1. Buscar campaña en contexto
+2. ObtenerAnunciosPorRendimientoInput(campana_id="...", ordenar_por="mql", limite=3)
+✅ Respuesta: Lista de TOP 3 anuncios ordenados por MQLs
+
+Usuario: "¿Qué porcentaje de MQLs se convierten en SQL?"
+1. Buscar campaña en contexto
+2. ObtenerFunnelConversionesInput(campana_id="...")
+✅ Respuesta: "El ratio MQL→SQL es del X%. [Análisis si está por debajo/encima del objetivo]"
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -210,7 +253,6 @@ def call_performance_llm(state: PerformanceAgentState):
     response = llm_with_tools.invoke(messages)
     
     return {"messages": [response]}
-
 
 def execute_performance_tools(state: PerformanceAgentState):
     """Ejecuta herramientas de rendimiento"""
@@ -238,6 +280,9 @@ def execute_performance_tools(state: PerformanceAgentState):
         # Otras
         "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
         "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
+        
+        # 🆕 Funnel de conversiones
+        "ObtenerFunnelConversionesInput": (obtener_funnel_conversiones_func, ObtenerFunnelConversionesInput),
     }
     
     last_message = state["messages"][-1]
@@ -295,7 +340,6 @@ def should_continue_performance(state: PerformanceAgentState) -> str:
     
     return "end"
 
-
 # ========== CONSTRUCCIÓN DEL GRAFO ==========
 
 def create_performance_agent():
@@ -327,13 +371,14 @@ performance_agent = create_performance_agent()
 # ========== TESTING ==========
 
 if __name__ == "__main__":
-    print("\n🧪 Testing PerformanceAgent...\n")
+    print("\n🧪 Testing PerformanceAgent con Funnel de Conversiones...\n")
     
     test_queries = [
-        "¿Qué anuncio tiene el mejor CTR en Costa Blanca?",
-        "¿Hay algún anuncio que ha empeorado?",
-        "Dame todos los anuncios de Baqueira",
-        "¿Cómo fueron todas las campañas vs la semana pasada?",
+        "¿cuánto he gastado en Baqueira esta semana?",
+        "¿cómo está mi funnel de conversiones?",
+        "ratio de MQL a SQL de Baqueira",
+        "TOP 3 anuncios con más MQLs",
+        "¿qué anuncio genera más SQLs?",
     ]
     
     for query in test_queries:
@@ -341,11 +386,11 @@ if __name__ == "__main__":
         print(f"Query: {query}")
         print('='*60)
         
-        config = {"configurable": {"thread_id": "test_perf_001"}}
+        config = {"configurable": {"thread_id": "test_perf_funnel_001"}}
         result = performance_agent.invoke(
             {"messages": [HumanMessage(content=query)]},
             config=config
         )
         
         final_message = result["messages"][-1]
-        print(f"Respuesta: {final_message.content[:200]}...")
+        print(f"Respuesta: {final_message.content[:300]}...")
