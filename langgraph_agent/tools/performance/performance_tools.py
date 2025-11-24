@@ -1223,7 +1223,8 @@ def comparar_destinos_func(
         logger.error(f"❌ Error comparando destinos: {e}")
         return CompararDestinosOutput(datos_json=json.dumps({"error": str(e)}))
 
-def obtener_metricas_anuncio_func(input: ObtenerMetricasAnuncioInput) -> ObtenerMetricasAnuncioOutput:
+# Asumiendo que se refiere a la métrica de AdSet
+def obtener_metricas_anuncio_func(input: ObtenerMetricasAdsetInput) -> ObtenerMetricasAdsetOutput:
     """
     Obtiene métricas de rendimiento de UN anuncio específico.
     
