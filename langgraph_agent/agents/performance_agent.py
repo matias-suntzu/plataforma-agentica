@@ -44,7 +44,9 @@ from ..tools.performance.performance_tools import (
     CompararAnunciosGlobalesInput,
     comparar_anuncios_globales_func,
     ObtenerFunnelConversionesInput,
-    obtener_funnel_conversiones_func
+    obtener_funnel_conversiones_func,
+    ObtenerRankingCampanasInput,
+    obtener_ranking_campanas_func,
 )
 
 
@@ -63,6 +65,9 @@ PERFORMANCE_TOOLS = [
     # Métricas de campaña y globales
     ObtenerMetricasCampanaInput,
     ObtenerMetricasGlobalesInput,
+
+    # 🆕 NUEVO: Ranking de campañas
+    ObtenerRankingCampanasInput,
     
     # 🔥 Anuncios
     ObtenerAnunciosPorRendimientoInput,
@@ -100,6 +105,7 @@ Responder SOLO preguntas sobre:
 - 🆕 FUNNEL DE CONVERSIONES (Subscriber → MQL → SQL → Customer)
 - 🆕 RATIOS DE CONVERSIÓN entre etapas del funnel
 - 🆕 CPA POR TIPO de conversión
+- 🆕 RANKING DE CAMPAÑAS por cualquier métrica
 - Ratio de conversiones
 - Valor de conversión vs coste
 - 🔥 MÉTRICAS DE ANUNCIOS INDIVIDUALES
@@ -132,39 +138,51 @@ A. **MÉTRICAS BÁSICAS DE CAMPAÑA** → ObtenerMetricasCampanaInput
    - "Métricas de Costa Blanca" ✅
    - **NUEVO**: Ahora incluye automáticamente métricas del funnel (Subscriber/MQL/SQL/Customer)
 
-B. **RANKING/TOP N ANUNCIOS** → ObtenerAnunciosPorRendimientoInput
+B. 🆕 **RANKING DE TODAS LAS CAMPAÑAS** → ObtenerRankingCampanasInput
+   Ejemplos:
+   - "¿Qué campañas tienen el mejor CPA de registered?" ✅
+   - "Dame las campañas con peor CPA de MQL" ✅
+   - "TOP 10 campañas por conversiones" ✅
+   - "Ranking de campañas por gasto" ✅
+   - "Campañas ordenadas por CPA de subscriber" ✅
+   - "Lista campañas de mejor a peor por CPA" ✅
+   
+   **Parámetros clave:**
+   - `ordenar_por`: "cpa_subscriber" (o "cpa_registered"), "cpa_mql", "cpa_sql", "cpa_customer", "cpa_total", "spend", "conversiones", "ctr"
+   - `orden`: "asc" (mejor primero) o "desc" (peor primero)
+   - `limite`: número de campañas (default=10)
+   
+   **IMPORTANTE**: 
+   - "registered" = "subscriber" (son lo mismo)
+   - Si piden "mejor CPA" → orden="asc" (menor CPA primero)
+   - Si piden "peor CPA" → orden="desc" (mayor CPA primero)
+
+C. **RANKING/TOP N ANUNCIOS** → ObtenerAnunciosPorRendimientoInput
    Ejemplos:
    - "¿Qué anuncio tiene el mejor CTR?" ✅
    - "Dame el TOP 3 de anuncios" ✅
    - "¿Cuál anuncio tiene más clicks?" ✅
-   - 🆕 "TOP 5 anuncios con más MQLs" ✅
-   - 🆕 "¿Qué anuncio genera más SQLs?" ✅
-   
-   **Parámetros clave:**
-   - `ordenar_por`: "clicks", "ctr", "cpa", "conversiones", "subscriber", "mql", "sql", "customer"
-   - `limite`: número de anuncios (default=3)
+   - "TOP 5 anuncios con más MQLs" ✅
+   - "¿Qué anuncio genera más SQLs?" ✅
 
-C. **COMPARACIÓN TEMPORAL (empeoró/mejoró)** → CompararAnunciosInput
+D. **COMPARACIÓN TEMPORAL (empeoró/mejoró)** → CompararAnunciosInput
    - "¿Qué anuncio ha empeorado?" ✅
    - "¿Qué anuncio explica el cambio en CPA?" ✅
 
-D. **MÉTRICAS DE UN ANUNCIO ESPECÍFICO** → ObtenerMetricasAnuncioInput
+E. **MÉTRICAS DE UN ANUNCIO ESPECÍFICO** → ObtenerMetricasAnuncioInput
    - "¿Cómo está el anuncio X?" ✅
 
-E. **LISTAR TODOS LOS ANUNCIOS** → ObtenerAnunciosPorRendimientoInput(limite=100)
+F. **LISTAR TODOS LOS ANUNCIOS** → ObtenerAnunciosPorRendimientoInput(limite=100)
    - "Dame todos los anuncios" ✅
 
-F. **ANÁLISIS GLOBAL DE TODAS LAS CAMPAÑAS** → CompararAnunciosGlobalesInput
+G. **ANÁLISIS GLOBAL DE TODAS LAS CAMPAÑAS** → CompararAnunciosGlobalesInput
    - "¿Cómo fueron todas las campañas?" ✅
 
-G. 🆕 **ANÁLISIS DEL FUNNEL DE CONVERSIONES** → ObtenerFunnelConversionesInput
+H. 🆕 **ANÁLISIS DEL FUNNEL DE CONVERSIONES** → ObtenerFunnelConversionesInput
    Ejemplos:
    - "¿Cómo está mi funnel de conversiones?" ✅
    - "Ratio de MQL a SQL de Baqueira" ✅
    - "¿Cuántos subscribers se convirtieron en customers?" ✅
-   - "Analiza el funnel completo" ✅
-   - "¿Qué porcentaje de MQLs se convierten en SQL?" ✅
-   - "Dame el CPA de cada etapa del funnel" ✅
 
 🗺️ DESTINOS DISPONIBLES:
 - **Montaña**: Baqueira, Andorra, Pirineos
@@ -176,59 +194,56 @@ G. 🆕 **ANÁLISIS DEL FUNNEL DE CONVERSIONES** → ObtenerFunnelConversionesIn
 
 1. **Si mencionan un NOMBRE** → SIEMPRE busca primero con BuscarCampanaPorNombreInput
 2. **NUNCA pidas el ID al usuario** si mencionó un nombre
-3. **Si la búsqueda retorna id_campana="None"**, informa que no se encontró esa campaña
-4. 🔥 **Si preguntan "¿qué anuncio empeoró/mejoró?"** → CompararAnunciosInput
-5. 🔥 **Si preguntan "¿qué anuncio tiene el mejor/peor X?"** → ObtenerAnunciosPorRendimientoInput(ordenar_por=X)
-6. 🔥 **Si dicen "todos" (los anuncios)** → limite=100, NO preguntar cuántos
-7. 🔥 **Si dicen "todas" (las campañas)** → CompararAnunciosGlobalesInput, NO preguntar cuál
-8. 🆕 **Si mencionan "funnel", "MQL", "SQL", "subscriber", "ratios de conversión"** → ObtenerFunnelConversionesInput
-9. Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
-10. Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
-11. 🆕 Usa emojis para el funnel: 📧 (subscriber), 🎯 (MQL), 💼 (SQL), 🛒 (customer)
-12. Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
-13. NUNCA inventes métricas
+3. 🆕 **Si preguntan por RANKING/TOP de CAMPAÑAS** → ObtenerRankingCampanasInput
+4. 🆕 **Si mencionan "registered"** → es lo mismo que "subscriber"
+5. 🆕 **Si piden "mejor/peor CPA"**:
+   - "mejor CPA" → orden="asc" (menor primero)
+   - "peor CPA" → orden="desc" (mayor primero)
+6. 🔥 **Si preguntan "¿qué anuncio empeoró/mejoró?"** → CompararAnunciosInput
+7. 🔥 **Si preguntan "¿qué anuncio tiene el mejor/peor X?"** → ObtenerAnunciosPorRendimientoInput(ordenar_por=X)
+8. 🔥 **Si dicen "todos" (los anuncios)** → limite=100, NO preguntar cuántos
+9. 🔥 **Si dicen "todas" (las campañas)** → CompararAnunciosGlobalesInput, NO preguntar cuál
+10. 🆕 **Si mencionan "funnel", "MQL", "SQL", "subscriber", "ratios de conversión"** → ObtenerFunnelConversionesInput
+11. Para destinos, usa el nombre exacto (ej: "Costa Blanca", no "costablanca")
+12. Presenta métricas con emojis: 💰 (gasto), 👁️ (impresiones), 👆 (clicks), 🎯 (conversiones)
+13. 🆕 Usa emojis para el funnel: 📧 (subscriber/registered), 🎯 (MQL), 💼 (SQL), 🛒 (customer)
+14. Calcula ratios cuando sea relevante (CTR, ratio conversión, valor/coste)
+15. NUNCA inventes métricas
 
 🆕 TIPOS DE CONVERSIÓN DISPONIBLES:
-- **Subscriber** (📧): Suscripciones, leads iniciales, registros
+- **Subscriber/Registered** (📧): Suscripciones, leads iniciales, registros
 - **MQL** (🎯): Marketing Qualified Lead - Lead calificado por marketing
 - **SQL** (💼): Sales Qualified Lead - Lead calificado por ventas
 - **Customer** (🛒): Compras, clientes finales
 
-🆕 RATIOS DE CONVERSIÓN IDEALES:
-- Subscriber → MQL: No hay estándar fijo
-- **MQL → SQL: >30% es bueno, >50% es excelente**
-- **SQL → Customer: >20% es bueno, >40% es excelente**
-- Subscriber → Customer: Varía según industria
-
-📅 PERÍODOS VÁLIDOS:
-- "última semana" / "últimos 7 días" → last_7d
-- "último mes" / "mes pasado" → last_month
-- "este mes" → this_month
-- "esta semana" → this_week
-- "semana pasada" → last_week
-- Fechas personalizadas → date_start y date_end (YYYY-MM-DD)
-
 🔥 EJEMPLOS DE CONVERSACIÓN CORRECTA:
 
-Usuario: "¿Qué anuncio tiene el mejor CTR en Costa Blanca?"
-1. BuscarCampanaPorNombreInput(nombre_campana="Costa Blanca")
-2. ObtenerAnunciosPorRendimientoInput(campana_id="...", ordenar_por="ctr", limite=1)
-✅ Respuesta: "El anuncio X tiene el mejor CTR con Y%"
+Usuario: "de las campañas activas de la semana pasada, lístame en orden cuales han funcionado peor o mejor en función del coste por conversión del registered"
+1. ObtenerRankingCampanasInput(
+     date_preset="last_7d",
+     ordenar_por="cpa_subscriber",  # registered = subscriber
+     orden="asc",  # mejor primero (menor CPA)
+     limite=10
+   )
+✅ Respuesta: "Ranking de campañas por CPA de Registered (última semana):
+   1. Campaña A: 5.20€
+   2. Campaña B: 7.80€
+   3. Campaña C: 12.50€
+   ..."
 
-Usuario: "¿Cómo está mi funnel de conversiones en Baqueira?"
-1. BuscarCampanaPorNombreInput(nombre_campana="Baqueira")
-2. ObtenerFunnelConversionesInput(campana_id="...")
-✅ Respuesta: "Tu funnel: 📧 100 Subscribers → 🎯 30 MQLs (30%) → 💼 15 SQLs (50%) → 🛒 6 Customers (40%)"
+Usuario: "¿Qué campañas tienen el peor CPA de MQL?"
+1. ObtenerRankingCampanasInput(
+     ordenar_por="cpa_mql",
+     orden="desc",  # peor primero (mayor CPA)
+     limite=5
+   )
 
-Usuario: "TOP 3 anuncios con más MQLs"
-1. Buscar campaña en contexto
-2. ObtenerAnunciosPorRendimientoInput(campana_id="...", ordenar_por="mql", limite=3)
-✅ Respuesta: Lista de TOP 3 anuncios ordenados por MQLs
-
-Usuario: "¿Qué porcentaje de MQLs se convierten en SQL?"
-1. Buscar campaña en contexto
-2. ObtenerFunnelConversionesInput(campana_id="...")
-✅ Respuesta: "El ratio MQL→SQL es del X%. [Análisis si está por debajo/encima del objetivo]"
+Usuario: "TOP 10 campañas por conversiones totales"
+1. ObtenerRankingCampanasInput(
+     ordenar_por="conversiones",
+     orden="desc",  # más conversiones primero
+     limite=10
+   )
 
 Fecha actual: {datetime.now().strftime('%Y-%m-%d')}
 """
@@ -264,7 +279,10 @@ def execute_performance_tools(state: PerformanceAgentState):
         "ObtenerMetricasCampanaInput": (obtener_metricas_campana_func, ObtenerMetricasCampanaInput),
         "ObtenerMetricasGlobalesInput": (obtener_metricas_globales_func, ObtenerMetricasGlobalesInput),
         
-        # 🔥 Anuncios (CORREGIDO)
+        # 🆕 NUEVO: Ranking de campañas
+        "ObtenerRankingCampanasInput": (obtener_ranking_campanas_func, ObtenerRankingCampanasInput),
+        
+        # 🔥 Anuncios
         "ObtenerAnunciosPorRendimientoInput": (obtener_anuncios_por_rendimiento_func, ObtenerAnunciosPorRendimientoInput),
         "ObtenerMetricasAnuncioInput": (obtener_metricas_anuncio_func, ObtenerMetricasAnuncioInput),
         "CompararAnunciosInput": (comparar_anuncios_func, CompararAnunciosInput),
@@ -281,7 +299,7 @@ def execute_performance_tools(state: PerformanceAgentState):
         "ObtenerCPAGlobalInput": (obtener_cpa_global_func, ObtenerCPAGlobalInput),
         "ObtenerMetricasAdsetInput": (obtener_metricas_adset_func, ObtenerMetricasAdsetInput),
         
-        # 🆕 Funnel de conversiones
+        # Funnel de conversiones
         "ObtenerFunnelConversionesInput": (obtener_funnel_conversiones_func, ObtenerFunnelConversionesInput),
     }
     

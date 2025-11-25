@@ -220,6 +220,23 @@ class ObtenerFunnelConversionesOutput(BaseModel):
     """Salida con análisis del funnel"""
     datos_json: str
 
+class ObtenerRankingCampanasInput(BaseModel):
+    """Obtiene ranking de TODAS las campañas ordenadas por métrica específica"""
+    date_preset: str = Field(default="last_7d", description="Período")
+    date_start: str = Field(default=None, description="Fecha inicio")
+    date_end: str = Field(default=None, description="Fecha fin")
+    ordenar_por: str = Field(
+        default="cpa_total",
+        description="Métrica: cpa_total, cpa_subscriber, cpa_mql, cpa_sql, cpa_customer, spend, conversiones, ctr"
+    )
+    limite: int = Field(default=10, description="TOP N campañas")
+    orden: str = Field(default="asc", description="asc (mejor primero) o desc (peor primero)")
+
+
+class ObtenerRankingCampanasOutput(BaseModel):
+    """Salida con ranking de campañas"""
+    datos_json: str
+
 # ========== MAPEO DE DATE PRESETS ==========
 
 DATE_PRESET_MAP = {
@@ -1682,3 +1699,167 @@ def obtener_funnel_conversiones_func(input: ObtenerFunnelConversionesInput) -> O
         logger.error(f"❌ Error obteniendo funnel de conversiones: {e}")
         return ObtenerFunnelConversionesOutput(datos_json=json.dumps({"error": str(e)}))
 
+def obtener_ranking_campanas_func(input: ObtenerRankingCampanasInput) -> ObtenerRankingCampanasOutput:
+    """
+    🆕 NUEVO: Obtiene ranking de TODAS las campañas activas ordenadas por métrica.
+    
+    Responde queries como:
+    - "¿Qué campañas tienen el mejor CPA de registered?"
+    - "Dame las campañas con peor CPA de MQL"
+    - "TOP 10 campañas por conversiones"
+    - "Ranking de campañas por gasto"
+    
+    Returns:
+        Ranking de campañas con métricas completas
+    """
+    try:
+        account = get_account()
+        
+        date_preset_normalized = normalize_date_preset(input.date_preset)
+        
+        # Configurar período
+        use_custom = bool(input.date_start and input.date_end)
+        params = {'level': 'campaign'}
+        
+        if use_custom:
+            params['time_range'] = {'since': input.date_start, 'until': input.date_end}
+            periodo_str = f"{input.date_start} a {input.date_end}"
+        else:
+            params['date_preset'] = date_preset_normalized
+            periodo_str = date_preset_normalized
+        
+        # Filtrar solo campañas activas
+        params['filtering'] = [
+            {'field': 'campaign.effective_status', 'operator': 'IN', 'value': ['ACTIVE']}
+        ]
+        params['limit'] = 200
+        
+        fields = [
+            AdsInsights.Field.campaign_id,
+            AdsInsights.Field.campaign_name,
+            AdsInsights.Field.spend,
+            AdsInsights.Field.impressions,
+            AdsInsights.Field.clicks,
+            AdsInsights.Field.ctr,
+            AdsInsights.Field.cpm,
+            AdsInsights.Field.cpc,
+            AdsInsights.Field.actions,
+        ]
+        
+        insights = account.get_insights(fields=fields, params=params)
+        
+        campanas = []
+        for insight in insights:
+            # Extraer conversiones por tipo usando la función existente
+            conversions_by_type = extract_conversion_metrics(insight)
+            
+            spend = float(insight.get('spend', 0))
+            clicks = int(insight.get('clicks', 0))
+            impressions = int(insight.get('impressions', 0))
+            ctr = float(insight.get('ctr', 0))
+            
+            # Solo incluir campañas con gasto > 0
+            if spend == 0:
+                continue
+            
+            # Calcular CPAs por tipo
+            cpa_subscriber = (spend / conversions_by_type["subscriber"]) if conversions_by_type["subscriber"] > 0 else float('inf')
+            cpa_mql = (spend / conversions_by_type["mql"]) if conversions_by_type["mql"] > 0 else float('inf')
+            cpa_sql = (spend / conversions_by_type["sql"]) if conversions_by_type["sql"] > 0 else float('inf')
+            cpa_customer = (spend / conversions_by_type["customer"]) if conversions_by_type["customer"] > 0 else float('inf')
+            cpa_total = (spend / conversions_by_type["total"]) if conversions_by_type["total"] > 0 else float('inf')
+            
+            campanas.append({
+                "campaign_id": insight.get('campaign_id'),
+                "campaign_name": insight.get('campaign_name', 'Sin nombre'),
+                "spend_eur": round(spend, 2),
+                "impressions": impressions,
+                "clicks": clicks,
+                "ctr": round(ctr, 2),
+                "cpm": round(float(insight.get('cpm', 0)), 2),
+                "cpc": round(float(insight.get('cpc', 0)), 2),
+                # Conversiones por tipo
+                "conversiones_subscriber": conversions_by_type["subscriber"],
+                "conversiones_mql": conversions_by_type["mql"],
+                "conversiones_sql": conversions_by_type["sql"],
+                "conversiones_customer": conversions_by_type["customer"],
+                "conversiones_total": conversions_by_type["total"],
+                # CPAs por tipo
+                "cpa_subscriber": round(cpa_subscriber, 2) if cpa_subscriber != float('inf') else None,
+                "cpa_mql": round(cpa_mql, 2) if cpa_mql != float('inf') else None,
+                "cpa_sql": round(cpa_sql, 2) if cpa_sql != float('inf') else None,
+                "cpa_customer": round(cpa_customer, 2) if cpa_customer != float('inf') else None,
+                "cpa_total": round(cpa_total, 2) if cpa_total != float('inf') else None,
+            })
+        
+        if not campanas:
+            return ObtenerRankingCampanasOutput(
+                datos_json=json.dumps({
+                    "error": "No se encontraron campañas activas con gasto en el período especificado"
+                })
+            )
+        
+        # 🔥 LÓGICA DE ORDENAMIENTO
+        metrica_key_map = {
+            "spend": ("spend_eur", False),  # Mayor = peor
+            "clicks": ("clicks", True),     # Mayor = mejor
+            "ctr": ("ctr", True),           # Mayor = mejor
+            "conversiones": ("conversiones_total", True),  # Mayor = mejor
+            # CPAs: Menor = mejor
+            "cpa_total": ("cpa_total", False),
+            "cpa_subscriber": ("cpa_subscriber", False),
+            "cpa_mql": ("cpa_mql", False),
+            "cpa_sql": ("cpa_sql", False),
+            "cpa_customer": ("cpa_customer", False),
+            # Sinónimos para "registered" = subscriber
+            "cpa_registered": ("cpa_subscriber", False),
+            "registered": ("conversiones_subscriber", True),
+        }
+        
+        sort_key, reverse_default = metrica_key_map.get(
+            input.ordenar_por.lower(),
+            ("cpa_total", False)
+        )
+        
+        # Si el usuario especificó orden explícito, usarlo
+        if input.orden == "desc":
+            reverse_order = True  # Peor primero
+        elif input.orden == "asc":
+            reverse_order = False  # Mejor primero
+        else:
+            reverse_order = reverse_default
+        
+        # Ordenar con manejo de None/inf
+        def safe_sort_key(x):
+            val = x.get(sort_key)
+            if val is None or val == float('inf'):
+                # Para métricas "menor es mejor" (CPA), None/inf va al final
+                # Para métricas "mayor es mejor" (clicks), None va al final
+                return float('inf') if not reverse_order else float('-inf')
+            return val
+        
+        campanas_ordenadas = sorted(campanas, key=safe_sort_key, reverse=reverse_order)[:input.limite]
+        
+        # Agregar ranking
+        for idx, campana in enumerate(campanas_ordenadas, 1):
+            campana['ranking'] = idx
+        
+        output = {
+            "periodo": periodo_str,
+            "total_campanas": len(campanas),
+            "top_n": len(campanas_ordenadas),
+            "ordenado_por": input.ordenar_por,
+            "orden": "mejor a peor" if not reverse_order else "peor a mejor",
+            "campanas": campanas_ordenadas
+        }
+        
+        logger.info(
+            f"✅ Ranking de {len(campanas_ordenadas)} campañas "
+            f"(ordenado por {input.ordenar_por}, {output['orden']})"
+        )
+        
+        return ObtenerRankingCampanasOutput(datos_json=json.dumps(output, ensure_ascii=False))
+    
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo ranking de campañas: {e}")
+        return ObtenerRankingCampanasOutput(datos_json=json.dumps({"error": str(e)}))
